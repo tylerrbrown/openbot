@@ -556,7 +556,7 @@ A new agent starts with a setup message from `agentWelcomeMessage`
 (`packages/contracts/src/agent-welcome.ts`), not with a message from the user. The chat does not show
 it; until the welcome turn starts, the queue snapshot reports `welcome: true` and the chat shows the
 agent's working line. The agent writes in the app language, or in the language of its profile. Its welcome is the text
-of one question (`AskUserQuestion` on Claude, `openbot.ask_user` on other providers) with three first
+of one question. Before the question, the agent can run startup commands from its workspace `AGENTS.md` within its existing permissions. It then uses `AskUserQuestion` on Claude or `openbot.ask_user` on other providers with three first
 tasks and free text. The answered question card keeps that text, so the welcome stays in the chat
 after the answer; text written before a question goes back into the turn's steps. When the iPhone
 onboarding has a first task, the setup message asks only for a welcome, and the task follows as the

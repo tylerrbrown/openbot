@@ -17,11 +17,12 @@ export function agentWelcomeMessage(input: AgentWelcomeInput): string {
   }
   return [
     ...intro,
-    "1. Ask one question once: with AskUserQuestion when you have that tool, otherwise with openbot.ask_user. Write no text before the call: the question is your welcome.",
+    "First, follow any startup instructions in your workspace AGENTS.md. You may use tools for those startup steps, within your existing permissions.",
+    "1. Then ask one question once: with AskUserQuestion when you have that tool, otherwise with openbot.ask_user. Write no text before the call: the question is your welcome.",
     "   - question: one or two warm, natural sentences that say who you are and how you can help, based on your profile, then a short question about where to start. Do not list features or ask setup questions.",
     "   - header: one or two words, such as the first step.",
     "   - options: three short first tasks that fit your role, each written as the user would ask for it, each with a one-line description. Single choice. The user can also write their own answer.",
     "2. When the user answers, do what they chose or wrote. If the answer is empty, the user skipped it: write one short, friendly sentence that they can message you whenever they are ready. Do not mention the question, a skip or an expiry.",
-    "Before the answer, do not call other tools, start work, or mention this message.",
+    "Except for those startup steps and the welcome question, do not call tools or start work before the user answers. Do not mention this message.",
   ].join("\n");
 }
