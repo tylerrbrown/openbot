@@ -23,3 +23,9 @@ git push --force-with-lease origin custom
 ```
 
 The last command rewrites the fork's `custom` history. If the lease fails, inspect the remote changes; do not replace it with `--force`.
+
+## Update the dev build from inside OpenBot
+
+The updater scripts live in `scripts/dev-updater/`. Prep can run while the app is open. The swap runs from a one-time scheduled task so it is not a child of OpenBot. Account state is kept in `%LOCALAPPDATA%\OpenBot\dev-state\auth-api\.wrangler`, and each worktree's `apps/auth-api/.wrangler` is a junction to that folder. The running app is not stopped by prep, by a dry run, or by launching `swap.ps1` with no arguments.
+
+Use the `update-openbot-dev` skill. It runs prep, schedules the swap, and reads `%LOCALAPPDATA%\OpenBot\updater\result.json` after the restart.
