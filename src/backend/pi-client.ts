@@ -47,6 +47,7 @@ import { createPiKeyExtension } from "./pi-key-providers";
 import { createPiMcpExtension, type PiMcpExtension, piMcpServerKeys, piMcpStartFailures } from "./pi-mcp";
 import { piMessageItems, piPrompt, piShellCommand, piText } from "./pi-messages";
 import { PI_REQUEST_TIMEOUT_MS, PiProcessClosedError, PiRpc } from "./pi-rpc";
+import { personalPiNaming, piSessionTitle, startedByOpenBot } from "./pi-session-title";
 import { piWindowsShellArguments } from "./pi-windows-shell";
 import type { SpawnTarget } from "./process-confinement";
 import {
@@ -188,6 +189,7 @@ interface PiThread {
   closed: boolean;
   gate: Semaphore.Semaphore;
   configured: boolean;
+  naming: "new" | "resumed" | "skip";
   idleRelease: ReturnType<typeof setTimeout> | null;
   idleSince: number;
   heldRecords: DynamicRecord[] | null;
@@ -765,6 +767,16 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
         closed: false,
         gate: Semaphore.makeUnsafe(1),
         configured,
+        naming:
+          !personalPiNaming() ||
+          this.provider !== "pi" ||
+          this.options.profileGeneration ||
+          this.options.confine ||
+          getString(state, "sessionName")
+            ? "skip"
+            : resume
+              ? "resumed"
+              : "new",
         idleRelease: null,
         idleSince: 0,
         heldRecords: null,
@@ -831,6 +843,21 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     return input.length === 0 || input.includes("image");
   });
 
+  readonly #nameChat = Effect.fn("PiAgentClient.nameChat")(function* (
+    this: PiAgentClient,
+    thread: PiThread,
+    topic: string,
+    resumed: boolean,
+  ) {
+    if (resumed && !(yield* startedByOpenBot(thread.id))) return;
+    const title = yield* piSessionTitle(this.#redact(topic), thread.cwd);
+    if (!title || thread.closed) return;
+    const state = yield* thread.rpc.request({ type: "get_state" });
+    if (getString(state, "sessionFile") === thread.id && !getString(state, "sessionName")) {
+      yield* thread.rpc.request({ type: "set_session_name", name: this.#redact(title) });
+    }
+  });
+
   readonly #prompt = Effect.fn("PiAgentClient.prompt")(function* (
     this: PiAgentClient,
     thread: PiThread,
@@ -848,6 +875,16 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       thread,
       getString(params, "clientTurnId") ?? getString(params, "clientUserMessageId") ?? randomUUID(),
     );
+    const topic = getString(params, "openbotNamingTopic");
+    if (topic && thread.naming !== "skip") {
+      const resumed = thread.naming === "resumed";
+      thread.naming = "skip";
+      this.#background(
+        this.#nameChat(thread, topic, resumed).pipe(
+          Effect.catch(() => Effect.sync(() => logger.warn("Pi chat naming failed."))),
+        ),
+      );
+    }
     this.#addUserMessage(turn, prompt.message);
     this.#notify("turn/started", thread, { turn: { id: turn.id, status: "inProgress" } });
     const fail = (failure: ProviderClientOperationError) =>

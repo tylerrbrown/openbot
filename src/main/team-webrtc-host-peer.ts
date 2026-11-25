@@ -123,6 +123,7 @@ import {
   TEAM_PROTOCOL_V10,
   TEAM_PROTOCOL_V10_ABSENT_LIMIT,
 } from "@openbot/contracts/team-protocol/v10";
+import { decodeTeamProtocolV10WebRtcHttpRequest } from "@openbot/contracts/team-protocol/v10-webrtc-adapter";
 import { sourceText } from "@openbot/i18n/source";
 import { Context, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect";
 import type * as Ws from "ws";
@@ -744,17 +745,19 @@ export class TeamWebRtcHostPeer {
   ): Effect.fn.Return<TeamProtocolV2Json, RemoteWorkflowError, HostPeerTransport> {
     const sideRoute = teamSideRouteCodec(input.path);
     const decodeRequest =
-      protocol >= 9
-        ? decodeTeamProtocolV9WebRtcHttpRequest
-        : protocol === 8
-          ? decodeTeamProtocolV8WebRtcHttpRequest
-          : protocol === 7
-            ? decodeTeamProtocolV7WebRtcHttpRequest
-            : protocol === 6
-              ? decodeTeamProtocolV6WebRtcHttpRequest
-              : protocol === 5
-                ? decodeTeamProtocolV5WebRtcHttpRequest
-                : decodeTeamProtocolV4WebRtcHttpRequest;
+      protocol >= TEAM_PROTOCOL_V10
+        ? decodeTeamProtocolV10WebRtcHttpRequest
+        : protocol >= 9
+          ? decodeTeamProtocolV9WebRtcHttpRequest
+          : protocol === 8
+            ? decodeTeamProtocolV8WebRtcHttpRequest
+            : protocol === 7
+              ? decodeTeamProtocolV7WebRtcHttpRequest
+              : protocol === 6
+                ? decodeTeamProtocolV6WebRtcHttpRequest
+                : protocol === 5
+                  ? decodeTeamProtocolV5WebRtcHttpRequest
+                  : decodeTeamProtocolV4WebRtcHttpRequest;
     const requestBody =
       input.method === "GET"
         ? undefined

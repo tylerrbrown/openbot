@@ -12,6 +12,15 @@ import { COMPUTER_USE_GUIDE_URI, piMcpServerName } from "./pi-mcp-names";
 import { providerCall } from "./provider-client-effects";
 
 const EXTENSION = String.raw`export default function (pi) {
+  let checkedSession;
+  pi.on("input", (_event, ctx) => {
+    const session = ctx.sessionManager.getSessionId();
+    if (session === checkedSession) return;
+    checkedSession = session;
+    const entries = ctx.sessionManager.getEntries();
+    if (entries.some((entry) => entry.type === "message" || (entry.type === "custom" && entry.customType === "openbot.launch-source"))) return;
+    pi.appendEntry("openbot.launch-source", "openbot");
+  });
   pi.on("tool_result", (event) => {
     if (event.toolName !== "tool_search" || event.isError) return undefined;
     return { content: [...event.content, { type: "text", text: ${JSON.stringify(piToolSearchNote())} }] };

@@ -153,6 +153,7 @@ import {
   decodeSidebarPinsFromMain,
   decodeSideQuestionAnswer,
   decodeTables,
+  decodeWorkAreasFromMain,
 } from "./agent-decoding";
 import {
   decodeAgentDockAction,
@@ -652,6 +653,7 @@ const agentGroup = bridgeGroup(IPC_ENDPOINTS.agent, {
   saveProfile: decodeSaveAgentProfileResult,
   askSideQuestion: decodeSideQuestionAnswer,
   saveSkillSuggestion: decodeSaveSkillSuggestionResult,
+  listWorkAreas: decodeWorkAreasFromMain,
   createAgent: decodeAgent,
   duplicateAgent: decodeDuplicateAgentResultFromMain,
   updateAgent: decodeAgent,

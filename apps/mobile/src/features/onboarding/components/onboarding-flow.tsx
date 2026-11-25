@@ -12,6 +12,7 @@ import Animated, { useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCSSVariable } from "uniwind";
 import type { AgentColorValue } from "@/features/agents/components/agent-appearance-picker";
+import { AgentWorkAreaPicker } from "@/features/agents/components/agent-work-area-picker";
 import type { WelcomeHandOff } from "@/features/agents/components/empty-agents-scene";
 import { InstructionsLimit, instructionsTooLong } from "@/features/agents/components/instructions-limit";
 import { newAvatarSeed } from "@/features/agents/model/avatar-candidates";
@@ -31,7 +32,7 @@ import {
   stepExiting,
   useOnboardingMotion,
 } from "@/features/onboarding/components/onboarding-motion";
-import { type FooterAction, OnboardingFooter } from "@/features/onboarding/components/onboarding-parts";
+import { type FooterAction, OnboardingFooter, StepScroll } from "@/features/onboarding/components/onboarding-parts";
 import { ReadyStep } from "@/features/onboarding/components/ready-step";
 import { ServerStep } from "@/features/onboarding/components/server-step";
 import {
@@ -52,7 +53,7 @@ import { haptics } from "@/shared/lib/haptics";
 import { refreshMobileFeatures, useMobileFeature } from "@/shared/lib/mobile-features";
 import { useText } from "@/shared/lib/text";
 
-type Step = "hello" | "server" | "agent" | "look" | "name" | "role" | "task" | "ready";
+type Step = "hello" | "server" | "workArea" | "agent" | "look" | "name" | "role" | "task" | "ready";
 
 const TINT_ALPHA = "14";
 const TINT_MS = 320;
@@ -62,16 +63,21 @@ const TYPING_STEPS: ReadonlySet<Step> = new Set(["name", "role", "task"]);
 const CHAT_OPEN_DEADLINE_MS = 1200;
 const CHARACTERS_OUT_MS = 300;
 
-function agentSteps(custom: boolean): readonly Step[] {
-  return custom ? ["agent", "look", "name", "role", "task", "ready"] : ["agent", "name", "task", "ready"];
+function agentSteps(custom: boolean, chooseArea: boolean): readonly Step[] {
+  const profile: Step[] = custom
+    ? ["agent", "look", "name", "role", "task", "ready"]
+    : ["agent", "name", "task", "ready"];
+  return chooseArea ? ["workArea", ...profile] : profile;
 }
 
-function previousStep(step: Step, needsServer: boolean, custom: boolean): Step | null {
+function previousStep(step: Step, needsServer: boolean, custom: boolean, chooseArea: boolean): Step | null {
   switch (step) {
     case "server":
       return "hello";
-    case "agent":
+    case "workArea":
       return needsServer ? "server" : "hello";
+    case "agent":
+      return chooseArea ? "workArea" : needsServer ? "server" : "hello";
     case "look":
       return "agent";
     case "name":
@@ -173,10 +179,13 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
   const insets = useSafeAreaInsets();
   const motion = useOnboardingMotion();
   const { session, signOut } = useMobileSession();
-  const { servers, createAgent } = useMobileWorkspace();
+  const { activeServer, servers, createAgent, requiresAgentWorkArea } = useMobileWorkspace();
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
   const [step, setStep] = useState<Step>("hello");
   const [direction, setDirection] = useState<1 | -1>(1);
+  const [serverId, setServerId] = useState<string>();
+  const [workArea, setWorkArea] = useState<string>();
+  const chooseArea = serverId !== undefined && requiresAgentWorkArea(serverId);
   const [choice, setChoice] = useState(0);
   const choiceProgress = useSharedValue(0);
   const [name, setName] = useState("");
@@ -245,11 +254,12 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
   const action = String(useCSSVariable("--openbot-action") ?? "#f0f0f0");
   const trimmedName = name.trim();
 
-  const online = servers.some((server) => server.state === "online");
-  const connecting = online
+  const onlineServer =
+    activeServer.state === "online" ? activeServer : servers.find((server) => server.state === "online");
+  const connecting = onlineServer
     ? null
     : (servers.find((server) => server.state === "connecting" || server.state === "unknown") ?? null);
-  const needsServer = !online;
+  const needsServer = !onlineServer;
 
   const accountHasPlans = useHostedServerAvailability(
     (state) => session !== null && state.userId === session.user.id && state.available,
@@ -301,13 +311,21 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
     [go, motion],
   );
 
+  const beginProfile = useCallback(
+    (id: string, transition: typeof go) => {
+      setServerId(id);
+      setWorkArea(undefined);
+      transition(requiresAgentWorkArea(id) ? "workArea" : "agent", 1);
+    },
+    [requiresAgentWorkArea],
+  );
   useEffect(() => {
-    if (step !== "server" || !online) return;
+    if (step !== "server" || !onlineServer) return;
     void haptics.notification("success");
-    go("agent", 1);
-  }, [go, online, step]);
+    beginProfile(onlineServer.id, go);
+  }, [beginProfile, go, onlineServer, step]);
 
-  const previous = previousStep(step, needsServer, custom);
+  const previous = previousStep(step, needsServer, custom, chooseArea);
   const back = useCallback(() => {
     if (previous === null || pending || leaving) return;
     void haptics.selection();
@@ -372,19 +390,27 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
   };
 
   const create = async (firstTask: string) => {
-    if (creating.current) return;
+    if (creating.current || serverId === undefined) return;
+    if (chooseArea && workArea === undefined) {
+      go("workArea", -1);
+      return;
+    }
     creating.current = true;
     setPending(true);
     setError(null);
     try {
-      const agentId = await createAgent({
-        name: trimmedName,
-        description: draft.description.trim(),
-        firstTask,
-        avatarSeed: draft.seed,
-        avatarHue: draft.hue,
-        avatarColor: draft.color,
-      });
+      const agentId = await createAgent(
+        {
+          name: trimmedName,
+          description: draft.description.trim(),
+          firstTask,
+          avatarSeed: draft.seed,
+          avatarHue: draft.hue,
+          avatarColor: draft.color,
+          workArea,
+        },
+        serverId,
+      );
       setCreated({ agentId, withTask: firstTask.trim().length > 0 });
       go("ready", 1);
     } catch (cause) {
@@ -411,9 +437,13 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
       case "hello":
         return {
           label: t("mobile.onboarding.hello.start"),
-          onPress: () => leaveTo(needsServer ? "server" : "agent", 1),
+          onPress: () => {
+            if (onlineServer) beginProfile(onlineServer.id, leaveTo);
+            else leaveTo("server", 1);
+          },
         };
       case "server":
+      case "workArea":
         return null;
       case "agent":
         return custom
@@ -466,6 +496,16 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
         onBack={previous !== null ? back : null}
         onSkip={skip}
       />
+    ) : step === "workArea" && serverId !== undefined ? (
+      <StepScroll>
+        <AgentWorkAreaPicker
+          serverId={serverId}
+          onConfirm={(area) => {
+            setWorkArea(area);
+            go("agent", 1);
+          }}
+        />
+      </StepScroll>
     ) : step === "agent" ? (
       <AgentStep
         motion={motion}
@@ -543,7 +583,7 @@ export function OnboardingFlow({ onFinish }: { onFinish: (welcome?: WelcomeHandO
     ) : null;
 
   const drafting = HERO_STEPS.has(step);
-  const sequence = agentSteps(custom);
+  const sequence = agentSteps(custom, chooseArea);
   const position = sequence.indexOf(step);
   const heroSlot = slots[step] ?? (drafting ? null : (slots.agent ?? null));
   const heroMood =

@@ -124,6 +124,8 @@ export const messages = {
     "이 모델은 Windows와 Linux에서 '워크스페이스만'으로 작동하지 않아요. 사용하려면 에이전트 설정에서 '권한'을 바꾸세요.",
   "provider.picker.olderModels": "이전 모델",
   "provider.picker.olderModelsList": "{name} 이전 모델",
+  "provider.picker.useServerDefault": "서버 기본값 사용",
+  "provider.settings.defaultModel": "기본 모델",
   "provider.picker.noModels":
     "여기에 표시되는 {name} 모델이 없어요. 꺼져 있다면 관리자가 서버 설정 > 제공자 > {name} > 모델에서 켤 수 있어요.",
   "provider.picker.endpointModelsInCustom":

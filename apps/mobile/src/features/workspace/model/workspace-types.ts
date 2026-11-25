@@ -582,7 +582,8 @@ export interface MobileWorkspaceContextValue {
   loadMcpAccess: (serverId: string) => Promise<McpAccessSnapshot>;
   setMcpAccess: (input: SetMcpAccessInput, serverId: string) => Promise<McpAccessSnapshot>;
   addRemoteServer: (input: AddRemoteServerInput) => Promise<string>;
-  createAgent: (input: NewAgentInput) => Promise<string>;
+  createAgent: (input: NewAgentInput, serverId: string) => Promise<string>;
+  loadAgentWorkAreas: (serverId: string) => Promise<string[]>;
   updateAgent: (input: UpdateAgentInput, serverId?: string) => Promise<void>;
   setAgentAvatar: (agentId: string, image: RemoteFileUpload | null, serverId: string) => Promise<void>;
   loadAgentAvatar: (agentId: string, avatarUrl: string, serverId: string) => Promise<string>;
@@ -690,6 +691,7 @@ export interface MobileWorkspaceContextValue {
   setAgentProviderAccount: (input: SetAgentProviderAccountInput, serverId: string) => Promise<void>;
   canStartNewChat: (serverId: string) => boolean;
   canChooseNewAgentModel: (serverId: string) => boolean;
+  requiresAgentWorkArea: (serverId: string) => boolean;
   loadAgentSessionSettings: (agentId: string, serverId: string) => Promise<AgentSessionSettings | null>;
   setAgentSessionSetting: (input: SetAgentSessionSettingInput, serverId: string) => Promise<AgentSessionSettings>;
   resetAgentSessionSetting: (input: ResetAgentSessionSettingInput, serverId: string) => Promise<AgentSessionSettings>;
@@ -855,6 +857,7 @@ export type MobileWorkspaceCapabilityCheck =
   | "canCompactContext"
   | "canDeleteChatHistory"
   | "canChooseNewAgentModel"
+  | "requiresAgentWorkArea"
   | "canInstallAgentTemplate"
   | "canSearchFiles"
   | "canUseTasks"

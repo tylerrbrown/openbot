@@ -117,6 +117,8 @@ export const messages = {
     "Estes modelos não funcionam com “Espaço de trabalho” no Windows e no Linux. Para usá-los, altere “Permissões” nas configurações do agente.",
   "provider.picker.olderModels": "Modelos anteriores",
   "provider.picker.olderModelsList": "Modelos anteriores de {name}",
+  "provider.picker.useServerDefault": "Usar o padrão do servidor",
+  "provider.settings.defaultModel": "Modelo padrão",
   "provider.picker.noModels":
     "Nenhum modelo de {name} aparece aqui. Se estiverem desativados, um administrador pode ativá-los em Configurações do servidor > Provedores > {name} > Modelos.",
   "provider.picker.endpointModelsInCustom":

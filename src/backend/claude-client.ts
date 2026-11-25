@@ -352,6 +352,7 @@ interface ThreadConfig {
   outputSchema: DynamicRecord | null;
   computerUse: boolean;
   channelTools: boolean;
+  privateMemory: boolean;
   workspaceOnly: boolean;
   excludedFolders: string[];
   excludedInstructionFiles: string[];
@@ -1536,7 +1537,9 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         : null;
     const plugins = [skillPlugin, homeSkillPlugin].filter((plugin) => plugin !== null);
     const launchPath = yield* cliLaunchPath(this.#cli.executable, this.#cli.source);
-    const openBotServers = handoff ? this.#createOpenBotServers(threadId, config.channelTools) : {};
+    const openBotServers = handoff
+      ? this.#createOpenBotServers(threadId, config.channelTools, config.privateMemory)
+      : {};
     const nodeOptions = this.#agentEnvironment?.().NODE_OPTIONS;
     const mcpConfigFile =
       handoff && stateDirectory && Object.keys(handoff.servers).length > 0
@@ -2926,14 +2929,14 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     return { thread: { id: threadId, turns } };
   });
 
-  #createOpenBotServers(threadId: string, channelTools: boolean) {
+  #createOpenBotServers(threadId: string, channelTools: boolean, privateMemory: boolean) {
     const call = (namespace: string, name: string, args: unknown) =>
       runCauseEffect(this.#callDynamicTool(threadId, namespace, name, args));
     return {
       openbot: createSdkMcpServer({
         name: "openbot",
         version: "0.1.0",
-        tools: claudeOpenBotTools((name, args) => call("openbot", name, args), channelTools),
+        tools: claudeOpenBotTools((name, args) => call("openbot", name, args), channelTools, privateMemory),
       }),
       [OPENBOT_BROWSER_NAMESPACE]: createSdkMcpServer({
         name: OPENBOT_BROWSER_NAMESPACE,
@@ -3171,6 +3174,7 @@ const writeClaudeFlagSettings = Effect.fn("ClaudeAgentClient.writeFlagSettings")
 export function claudeOpenBotTools(
   call: (name: string, args: unknown) => Promise<CallToolResult>,
   channelTools = false,
+  privateMemory = true,
 ) {
   const channel = channelTools
     ? CHANNEL_TOOL_DEFINITIONS.filter((definition) =>
@@ -3186,7 +3190,7 @@ export function claudeOpenBotTools(
       extras,
     );
   return [
-    ...visibleToolDefinitions("claude")
+    ...visibleToolDefinitions("claude", privateMemory)
       .filter((definition) => definition.name !== "ask_user")
       .map((definition) =>
         claudeTool(definition, definition.name === ROUTINE_NO_UPDATE_TOOL ? { alwaysLoad: true } : undefined),
@@ -3508,6 +3512,7 @@ function readThreadConfig(params: unknown): ThreadConfig {
         : null,
     computerUse: computerUseParam(params),
     channelTools: isRecord(params) && params.channelTools === true,
+    privateMemory: isRecord(params) && params.privateMemory === true,
     workspaceOnly: isRecord(params) && params.workspaceOnly === true,
     excludedFolders:
       isRecord(params) && Array.isArray(params.excludedFolders)

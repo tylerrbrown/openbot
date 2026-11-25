@@ -128,17 +128,31 @@ export function createDevelopmentServiceSpec(
   }
 
   const isTestClient = name === "test-client";
+  const profile = isTestClient ? "test-client" : "app";
+  const userData = resolve(
+    resolveDevelopmentAppDataRoot(process.platform, childEnvironment),
+    developmentUserDataName(profile, readDevelopmentInstanceId(childEnvironment.OPENBOT_DEV_INSTANCE_ID)),
+  );
   const outputDirectory = isTestClient ? "out-dev-test-client" : "out-dev-app";
   const electronVite = resolvePackageBin(projectRoot, "electron-vite");
   return {
     name,
     executable: electronVite,
-    args: ["dev", "--watch", "--outDir", outputDirectory, "--entry", join(outputDirectory, "main", "start.js")],
+    args: [
+      "dev",
+      "--watch",
+      "--outDir",
+      outputDirectory,
+      "--entry",
+      join(outputDirectory, "main", "start.js"),
+      "--",
+      `--user-data-dir=${userData}`,
+    ],
     cwd: projectRoot,
     env: {
       ...childEnvironment,
       OPENBOT_APP_VARIANT: "dev",
-      OPENBOT_DEV_PROFILE: isTestClient ? "test-client" : "app",
+      OPENBOT_DEV_PROFILE: profile,
       OPENBOT_DEV_RENDERER_PORT:
         childEnvironment.OPENBOT_DEV_RENDERER_PORT ??
         String(isTestClient ? DEFAULT_RENDERER_PORTS["test-client"] : DEFAULT_RENDERER_PORTS.app),
@@ -171,29 +185,6 @@ export function createDevInstanceRecord(
     pid,
     startedAt,
   };
-}
-
-export function developmentProfileToSeed(
-  specs: readonly DevelopmentServiceSpec[],
-  profileExists: (path: string) => boolean = existsSync,
-): { profile: string; env: NodeJS.ProcessEnv } | null {
-  const app = specs.find((spec) => spec.name === "app");
-  if (!app) return null;
-  const instanceId = readDevelopmentInstanceId(app.env.OPENBOT_DEV_INSTANCE_ID);
-  const profile = resolve(
-    resolveDevelopmentAppDataRoot(process.platform, app.env),
-    developmentUserDataName("app", instanceId),
-  );
-  return profileExists(profile) ? null : { profile, env: app.env };
-}
-
-function seedDevelopmentProfile(profile: string, environment: NodeJS.ProcessEnv): void {
-  logger.info(`Seeding the new development profile ${profile}.`);
-  execFileSync(process.execPath, ["run", "dev:seed", "--if-missing"], {
-    cwd: projectRoot,
-    stdio: "inherit",
-    env: withoutElectronRuntimeFlags(environment),
-  });
 }
 
 const DEVELOPMENT_OPTIONS = [
@@ -330,9 +321,6 @@ async function main(): Promise<void> {
   const closeSlackTunnels = slack ? await attachSlackTunnels(specs, projectRoot) : null;
 
   try {
-    const seed = developmentProfileToSeed(specs);
-    if (seed) seedDevelopmentProfile(seed.profile, seed.env);
-
     await runDevelopmentServices(specs, stack);
   } catch (error) {
     closeSlackTunnels?.();

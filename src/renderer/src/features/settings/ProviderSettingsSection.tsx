@@ -261,6 +261,15 @@ function ProviderSettingsSection(props: ProviderSettingsSectionProps) {
               }
             : undefined
         }
+        defaultModel={
+          props.defaultProvider
+            ? {
+                provider: props.defaultProvider.preferredProvider,
+                value: props.defaultProvider.preferredModel,
+                onChange: (provider, model) => void selectProvider(provider, false, model),
+              }
+            : undefined
+        }
         disabled={Boolean(saving.pending)}
         usage={props.usage}
         customProviders={customProviders()}

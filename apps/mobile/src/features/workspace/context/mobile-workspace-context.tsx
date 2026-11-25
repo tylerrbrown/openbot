@@ -32,6 +32,10 @@ import { AGENT_PLAN_CARD_CAPABILITY } from "@openbot/contracts/team-protocol/age
 import { AGENT_PUBLISH_CAPABILITY } from "@openbot/contracts/team-protocol/agent-publish-v1";
 import { AGENT_TASK_LIMIT_CAPABILITY } from "@openbot/contracts/team-protocol/agent-task-limit-v1";
 import { AGENT_UPDATE_CAPABILITY } from "@openbot/contracts/team-protocol/agent-update-v1";
+import {
+  AGENT_WORK_AREA_CAPABILITY,
+  AGENT_WORK_AREA_ROUTES,
+} from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import { BACKGROUND_PROCESSES_CAPABILITY } from "@openbot/contracts/team-protocol/background-processes-v1";
 import { BITWARDEN_CONNECTOR_CAPABILITY } from "@openbot/contracts/team-protocol/bitwarden-connector-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@openbot/contracts/team-protocol/browser-profiles-v1";
@@ -164,6 +168,7 @@ import * as Crypto from "expo-crypto";
 import { type PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { View } from "react-native";
 import { agentInitialMessage, type NewAgentInput } from "@/features/agents/model/agent-initial-message";
+import { decodeAgentWorkAreas, workAreaMessages } from "@/features/agents/model/agent-work-area";
 import { showFailureAlert } from "@/features/analytics/failure-reports";
 import { mobileAnalytics } from "@/features/analytics/mobile-analytics";
 import { trackWorkspaceActions } from "@/features/analytics/workspace-actions";
@@ -2209,20 +2214,40 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
           ),
         );
       },
-      createAgent: async (input: NewAgentInput) => {
-        const serverId = currentActiveServer().id;
+      loadAgentWorkAreas: async (serverId) => {
+        await connectionWaits.whenConnected(serverId);
+        if (!hasCapability(serverCapabilities.current, serverId, AGENT_WORK_AREA_CAPABILITY)) {
+          throw new Error(currentText().sourceText(workAreaMessages["mobile.agent.workArea.unsupported"]));
+        }
+        return request("GET", AGENT_WORK_AREA_ROUTES.list, decodeAgentWorkAreas, undefined, serverId);
+      },
+      createAgent: async (input: NewAgentInput, serverId) => {
+        await connectionWaits.whenConnected(serverId);
+        const requiresArea = hasCapability(serverCapabilities.current, serverId, AGENT_WORK_AREA_CAPABILITY);
+        const workArea = input.workArea;
+        if (requiresArea && !workArea?.trim()) {
+          throw new Error(currentText().sourceText(workAreaMessages["mobile.agent.workArea.choose"]));
+        }
+        if (!requiresArea && workArea !== undefined) {
+          throw new Error(currentText().sourceText(workAreaMessages["mobile.agent.workArea.unsupported"]));
+        }
         const firstTask = input.firstTask?.trim() ?? "";
-        const welcome = hasCapability(serverCapabilities.current, serverId, AGENT_WELCOME_CAPABILITY);
+        const welcome =
+          workArea === undefined && hasCapability(serverCapabilities.current, serverId, AGENT_WELCOME_CAPABILITY);
         const body = {
           name: input.name,
           description: input.description,
           avatarSeed: input.avatarSeed,
           avatarHue: input.avatarHue,
-          initialMessage: agentInitialMessage(
-            input.description,
-            firstTask,
-            welcome ? { locale: currentText().locale } : null,
-          ),
+          ...(workArea === undefined
+            ? {
+                initialMessage: agentInitialMessage(
+                  input.description,
+                  firstTask,
+                  welcome ? { locale: currentText().locale } : null,
+                ),
+              }
+            : { workArea, initialMessage: firstTask }),
           ...(input.provider &&
           input.model &&
           hasCapability(serverCapabilities.current, serverId, TEAM_AGENT_CREATE_MODEL_CAPABILITY)
@@ -2241,6 +2266,7 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
           TEAM_API_ROUTES.agents.all,
           decodeAgent,
           operation ? { ...body, operationId: operation.id } : body,
+          serverId,
         ).catch((error: unknown) => {
           operation?.failed();
           throw error;
@@ -2555,6 +2581,7 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
     workflows,
     hostRequests,
     request,
+    connectionWaits,
     teamApi,
     queryClient,
     queryScope,

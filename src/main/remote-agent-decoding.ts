@@ -76,6 +76,7 @@ import { isAgentThreadBranchLinks } from "@openbot/contracts/team-protocol/agent
 import { isAgentThreadQueues } from "@openbot/contracts/team-protocol/agent-thread-queue-v1";
 import { isAgentThreadRequests } from "@openbot/contracts/team-protocol/agent-thread-requests-v1";
 import { isAgentUsageLimits } from "@openbot/contracts/team-protocol/agent-usage-limit-v1";
+import type { WorkAreasResponse } from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import { decodeProviderUseResponse } from "@openbot/contracts/team-protocol/provider-use-v1";
 
 export const decodeAgentHostSettingsFromHost = guardedDecoder(isAgentHostSettings, "agent host settings response");
@@ -83,6 +84,12 @@ export const decodeRemoteAgentColors = guardedDecoder(isAgentColors, "agent colo
 export const decodeRemoteChatColors = guardedDecoder(isChatColors, "chat colors response");
 export const decodeHiddenAgentsFromHost = guardedDecoder(isHiddenAgentsSnapshot, "hidden agents response");
 export const decodeSidebarPinsFromHost = guardedDecoder(isSidebarPinsSnapshot, "pinned chats response");
+
+export function decodeWorkAreasFromHost(value: unknown): WorkAreasResponse {
+  const { areas } = decodeRecord(value, "Work areas response");
+  return { areas: guardedListDecoder(isString, "Work areas response")(areas) };
+}
+
 export const decodeAgentNotificationLevelsFromHost = guardedDecoder(
   isAgentNotificationLevelsSnapshot,
   "agent notification levels response",

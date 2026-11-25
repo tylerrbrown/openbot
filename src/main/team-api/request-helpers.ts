@@ -515,12 +515,20 @@ export function agentCreate(value: DynamicRecord): CreateAgentInput {
   if (value.reasoningEffort !== undefined && !isReasoningEffort(value.reasoningEffort)) {
     throw new HttpError(400, "reasoningEffort is invalid.");
   }
+  const workArea =
+    value.workArea === undefined ? undefined : requiredCreateText(value.workArea, "workArea", INPUT_LIMITS.identifier);
   return {
     name: requiredCreateText(value.name, "name", INPUT_LIMITS.agentName),
     description: value.description,
     avatarSeed: value.avatarSeed,
     avatarHue,
-    initialMessage: requiredCreateText(value.initialMessage, "initialMessage", INPUT_LIMITS.messageText),
+    initialMessage: requiredCreateText(
+      value.initialMessage,
+      "initialMessage",
+      INPUT_LIMITS.messageText,
+      workArea !== undefined,
+    ),
+    ...(workArea === undefined ? {} : { workArea }),
     ...(value.provider === undefined ? {} : { provider: value.provider }),
     ...(value.model === undefined ? {} : { model: value.model }),
     ...(value.reasoningEffort === undefined ? {} : { reasoningEffort: value.reasoningEffort }),
@@ -528,8 +536,8 @@ export function agentCreate(value: DynamicRecord): CreateAgentInput {
   };
 }
 
-function requiredCreateText(value: unknown, field: string, maximum: number): string {
-  if (!isString(value) || !value.trim() || value.length > maximum) {
+function requiredCreateText(value: unknown, field: string, maximum: number, allowEmpty = false): string {
+  if (!isString(value) || (!allowEmpty && !value.trim()) || value.length > maximum) {
     throw new HttpError(400, `${field} is invalid.`);
   }
   return value;

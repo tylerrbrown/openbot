@@ -1,13 +1,19 @@
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type { CreateAgentInput } from "@openbot/contracts/ipc";
 import { router } from "expo-router";
-import { Typography } from "heroui-native";
+import { Button, Typography } from "heroui-native";
 import { useEffect, useRef, useState } from "react";
 import { AgentAppearancePicker, type AgentColorValue } from "@/features/agents/components/agent-appearance-picker";
 import { AgentRuntimeFields } from "@/features/agents/components/agent-runtime-fields";
+import { AgentWorkAreaPicker } from "@/features/agents/components/agent-work-area-picker";
 import { InstructionsLimit, instructionsTooLong } from "@/features/agents/components/instructions-limit";
+import { workAreaMessages } from "@/features/agents/model/agent-work-area";
 import { newAvatarSeed } from "@/features/agents/model/avatar-candidates";
-import { useMobileWorkspace, useMobileWorkspaceReader } from "@/features/workspace/context/mobile-workspace-context";
+import {
+  useMobileWorkspace,
+  useMobileWorkspaceReader,
+  useMobileWorkspaceSelector,
+} from "@/features/workspace/context/mobile-workspace-context";
 import { showsOnline } from "@/features/workspace/model/server-status";
 import { SheetCloseAction } from "@/shared/components/sheet-close-action";
 import { SheetFormField } from "@/shared/components/sheet-form-field";
@@ -20,9 +26,12 @@ import { useDiscardGuard } from "@/shared/lib/use-discard-guard";
 type AgentRuntimeChoice = Pick<CreateAgentInput, "provider" | "model" | "reasoningEffort">;
 
 export function AddAgentScreen() {
-  const { t, errorMessage } = useText();
+  const { t, errorMessage, sourceText } = useText();
   const workspace = useMobileWorkspaceReader();
   const [serverId] = useState(() => workspace().activeServer.id);
+  const requiresArea = useMobileWorkspaceSelector((current) => current.requiresAgentWorkArea(serverId));
+  const [workArea, setWorkArea] = useState<string>();
+  const choosingArea = requiresArea && workArea === undefined;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [runtime, setRuntime] = useState<AgentRuntimeChoice>({});
@@ -56,19 +65,23 @@ export function AddAgentScreen() {
       void haptics.notification("error");
       return;
     }
-    if (!valid || pending.current || finished) return;
+    if (choosingArea || !valid || pending.current || finished) return;
     pending.current = true;
     setSaving(true);
     setError(null);
     try {
-      await workspace().createAgent({
-        name: name.trim(),
-        description: description.trim(),
-        avatarSeed,
-        avatarHue: avatarColor.hue,
-        avatarColor: avatarColor.color,
-        ...(workspace().activeServer.id === serverId ? runtime : {}),
-      });
+      await workspace().createAgent(
+        {
+          name: name.trim(),
+          description: description.trim(),
+          avatarSeed,
+          avatarHue: avatarColor.hue,
+          avatarColor: avatarColor.color,
+          workArea,
+          ...runtime,
+        },
+        serverId,
+      );
       void haptics.notification("success");
       setFinished(true);
     } catch (cause) {
@@ -95,54 +108,74 @@ export function AddAgentScreen() {
         }}
       />
       <SheetSaveAction
-        dirty={dirty}
+        dirty={dirty && !choosingArea}
         canSave={!instructionsTooLong(description) && !finished}
         pending={saving}
         label={t("mobile.agent.add.create")}
         pendingLabel={t("mobile.agent.add.creating")}
         onSave={() => void submit()}
       />
-      <AgentAppearancePicker
-        seed={avatarSeed}
-        hue={avatarColor.hue}
-        color={avatarColor.color}
-        name={name}
-        colorGlow
-        nameField={
+      {choosingArea ? (
+        <AgentWorkAreaPicker serverId={serverId} onConfirm={setWorkArea} />
+      ) : (
+        <>
+          {workArea ? (
+            <Button
+              variant="ghost"
+              isDisabled={saving}
+              accessibilityLabel={sourceText(workAreaMessages["mobile.agent.workArea.change"])}
+              accessibilityValue={{ text: workArea }}
+              onPress={() => {
+                setError(null);
+                setWorkArea(undefined);
+              }}
+            >
+              <Button.Label>{workArea}</Button.Label>
+            </Button>
+          ) : null}
+          <AgentAppearancePicker
+            seed={avatarSeed}
+            hue={avatarColor.hue}
+            color={avatarColor.color}
+            name={name}
+            colorGlow
+            nameField={
+              <SheetFormField
+                editable={!saving}
+                autoCapitalize="words"
+                label={t("mobile.agent.form.name")}
+                appearance="soft"
+                maxLength={INPUT_LIMITS.agentName}
+                placeholder={t("mobile.agent.add.namePlaceholder")}
+                value={name}
+                error={triedCreate && nameMissing ? t("mobile.agent.add.nameRequired") : undefined}
+                onChangeText={setName}
+              />
+            }
+            disabled={saving}
+            onSeedChange={setAvatarSeed}
+            onColorChange={setAvatarColor}
+          />
+
           <SheetFormField
             editable={!saving}
-            autoCapitalize="words"
-            label={t("mobile.agent.form.name")}
+            label={t("mobile.agent.add.descriptionLabel")}
             appearance="soft"
-            maxLength={INPUT_LIMITS.agentName}
-            placeholder={t("mobile.agent.add.namePlaceholder")}
-            value={name}
-            error={triedCreate && nameMissing ? t("mobile.agent.add.nameRequired") : undefined}
-            onChangeText={setName}
+            multiline
+            placeholder={t("mobile.agent.add.descriptionPlaceholder")}
+            value={description}
+            onChangeText={setDescription}
           />
-        }
-        disabled={saving}
-        onSeedChange={setAvatarSeed}
-        onColorChange={setAvatarColor}
-      />
+          <InstructionsLimit text={description} />
 
-      <SheetFormField
-        editable={!saving}
-        label={t("mobile.agent.add.descriptionLabel")}
-        appearance="soft"
-        multiline
-        placeholder={t("mobile.agent.add.descriptionPlaceholder")}
-        value={description}
-        onChangeText={setDescription}
-      />
-      <InstructionsLimit text={description} />
-
-      <NewAgentRuntimeFields
-        serverId={serverId}
-        saving={saving}
-        value={runtime}
-        onChange={(value) => setRuntime((current) => ({ ...current, ...value }))}
-      />
+          <NewAgentRuntimeFields
+            serverId={serverId}
+            saving={saving}
+            value={runtime}
+            onChange={(value) => setRuntime((current) => ({ ...current, ...value }))}
+          />
+        </>
+      )}
 
       {error ? (
         <Typography.Paragraph accessibilityRole="alert" align="center" className="text-danger-text">

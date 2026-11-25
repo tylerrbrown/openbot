@@ -120,6 +120,10 @@ import {
   decodeAgentWaitsResponse,
 } from "@openbot/contracts/team-protocol/agent-waits-v1";
 import {
+  AGENT_WORK_AREA_CAPABILITY,
+  AGENT_WORK_AREA_ROUTES,
+} from "@openbot/contracts/team-protocol/agent-work-area-v1";
+import {
   BROWSER_SECRET_VAULT_CAPABILITY,
   BROWSER_SECRET_VAULT_ROUTES,
 } from "@openbot/contracts/team-protocol/browser-secret-vault-v1";
@@ -198,6 +202,7 @@ import type { AgentService } from "../../backend/agent-service";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import { canConfineProcesses } from "../../backend/process-confinement";
 import type { SidebarLayoutStore } from "../../backend/sidebar-layout-store";
+import { listWorkAreas, workAreaSetupAvailable } from "../../backend/work-area-bootstrap";
 import type { NotificationChat } from "../desktop-notifications";
 import type { HostService } from "../host-service";
 import type { LibraryFoldersService } from "../library-folders-service";
@@ -231,6 +236,7 @@ import {
   decodeSidebarLayoutSnapshot,
   decodeSidebarPinsFromHost,
   decodeUsageCreditsList,
+  decodeWorkAreasFromHost,
 } from "../remote-agent-decoding";
 import { decodeConversationReadState } from "../remote-conversation-decoding";
 import { acceptEmpty, decodeVoid, type ResponseDecoder } from "../remote-host-decoding";
@@ -840,11 +846,20 @@ export function agentIpcHandlers({
             ),
           ),
       }),
+      listWorkAreas: scopedQueryHandler<{ areas: string[] | null }>({
+        local: async () => ({ areas: workAreaSetupAvailable() ? await listWorkAreas() : null }),
+        remote: (serverId) =>
+          remoteServers.supportsCapability(serverId, AGENT_WORK_AREA_CAPABILITY)
+            ? runCauseEffect(remoteServers.request(serverId, AGENT_WORK_AREA_ROUTES.list, decodeWorkAreasFromHost))
+            : { areas: null },
+      }),
       createAgent: scopedHandler(parseCreateAgent, {
         local: (parsed) =>
           runCauseEffect(service.createAgent(parsed, undefined, undefined, host.conversationSender(), true)),
         remote: async (parsed, serverId) => {
           const { avatarColor, providerAccountId, ...input } = parsed;
+          if (input.workArea !== undefined && !remoteServers.supportsCapability(serverId, AGENT_WORK_AREA_CAPABILITY))
+            throw new Error(sourceText("error.team.workAreaUnsupported"));
           const operation = remoteServers.supportsCapability(serverId, AGENT_CREATE_OPERATION_CAPABILITY)
             ? createOperationId([serverId, input])
             : null;

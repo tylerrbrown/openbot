@@ -129,6 +129,7 @@ import {
 import { handleRoutineFlowTool, type RoutineFlowTools } from "../routine-flows/routine-flow-tools";
 import type { StoredStateFailure } from "../stored-state-effects";
 import type { VaultItems } from "../vault-items";
+import { listWorkAreas, workAreaSetupAvailable } from "../work-area-bootstrap";
 import { WORKFLOW_ANSWER_TOOL } from "../workflows/workflow-answers";
 import {
   handleWorkflowAnswerTool,
@@ -248,6 +249,7 @@ import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool }
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
 import {
+  AGENT_MEMORY_TOOLS,
   ANTIGRAVITY_DEFERRED_MCP_NOTE,
   browserToolsPrimer,
   CODEX_DEFERRED_MCP_NOTE,
@@ -292,14 +294,6 @@ function requestAborted(signal: AbortSignal | undefined) {
     return Effect.sync(() => signal?.removeEventListener("abort", abort));
   });
 }
-
-const AGENT_MEMORY_TOOLS: ReadonlySet<string> = new Set([
-  "search_memories",
-  "list_memories",
-  "set_memory_inclusion",
-  "remember",
-  "forget_memory",
-]);
 
 const LISTED_DESCRIPTION_LENGTH = 300;
 
@@ -704,7 +698,7 @@ export class OpenBotToolRouter {
               let result: ReturnType<typeof discoverTools>;
               try {
                 this.#requireAgent(agentId);
-                result = discoverTools(params, client.provider);
+                result = discoverTools(params, client.provider, this.#memoryEnabled(agentId));
               } catch (error) {
                 client.respond(
                   request.id,
@@ -2139,6 +2133,23 @@ export class OpenBotToolRouter {
       return openBotToolResult({ agents });
     }
 
+    if (params.tool === "list_work_areas") {
+      if (!workAreaSetupAvailable()) return openBotToolResult({ areas: null });
+      if (
+        workspaceAccessEnforced(this.#requireAgent(senderAgentId)) ||
+        this.#memberRequesters(senderAgentId, params.turnId).length
+      )
+        return {
+          success: false,
+          contentItems: [{ type: "inputText", text: "Choose the Work area in the host owner’s OpenBot app." }],
+        };
+      const areas = yield* Effect.tryPromise({
+        try: listWorkAreas,
+        catch: (cause) => new ToolOperationFailed({ cause }),
+      });
+      return openBotToolResult({ areas });
+    }
+
     if (params.tool === "list_models") {
       const args = listModelsToolSchema.parse(params.arguments ?? {});
       const payload = listModelsPayload(
@@ -3318,6 +3329,11 @@ export class OpenBotToolRouter {
       const args = createAgentToolSchema.parse(params.arguments, { reportInput: true });
       const hue = args.avatarHue ?? null;
       const caller = this.#requireAgent(senderAgentId);
+      if (
+        args.workArea &&
+        (workspaceAccessEnforced(caller) || this.#memberRequesters(senderAgentId, params.turnId).length)
+      )
+        throw new AgentSettingsRefused("Choose the Work area in the host owner’s OpenBot app.");
       const listed = this.#hooks.listModels();
       const named = requestedToolModel(args, listed);
       if (named) requireRunnableProvider(named, this.#hooks.providerStatuses());
@@ -3346,6 +3362,7 @@ export class OpenBotToolRouter {
           {
             name: args.name,
             description: args.description,
+            workArea: args.workArea,
             initialMessage: args.initialMessage,
             avatarSeed: args.avatarSeed ?? randomUUID(),
             avatarHue: hue,

@@ -2515,6 +2515,10 @@ version with the answer on the computer. The phone app sends no new request: the
 feature flag request that it already makes now also has the lowest supported store version.
 
 
+## Personal Pi chat titles on MIN
+
+In this custom build on MIN, OpenBot can name a Pi chat from the signed-in host user's direct message. It sends up to 1,500 characters of redacted message text to the host's Pi naming command. The command can send that excerpt to Anthropic, DeepSeek, or Groq and keeps its own local naming records. OpenBot does not include attachments, tool results, agent instructions, channel messages, or another member's messages in the title request. It writes the title and a separate launch-source mark to the local Pi session. The source mark does not go to the chat model.
+
 ## Pi, Muse, and ACP registry setup
 
 Pi and Muse run on the host selected for the agent. They receive the conversation input, attached

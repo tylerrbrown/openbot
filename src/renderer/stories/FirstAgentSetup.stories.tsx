@@ -51,7 +51,6 @@ function ControlledFirstAgentSetup(props: FirstAgentSetupProps) {
 
 const args: FirstAgentSetupProps = {
   value: DEFAULT_FIRST_AGENT_DRAFT,
-  suggestions: FIRST_AGENT_SUGGESTIONS,
   submitting: false,
   modelOptions: STORY_MODELS,
   agentStatus: STORY_AGENT_STATUS,
@@ -83,10 +82,32 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
+export const WorkArea: Story = {
+  render: (storyArgs) => {
+    let retry = false;
+    return (
+      <ControlledFirstAgentSetup
+        {...storyArgs}
+        workAreas={{
+          scope: "example-host",
+          load: async () => {
+            if (!retry) {
+              retry = true;
+              throw new Error("Example Work area request failed");
+            }
+            return { areas: ["example/engineering", "example/operations"] };
+          },
+        }}
+      />
+    );
+  },
+};
+
 const selectedSuggestion = FIRST_AGENT_SUGGESTIONS[1];
 
 export const SuggestionSelected: Story = {
   args: {
+    suggestions: FIRST_AGENT_SUGGESTIONS,
     value: selectedSuggestion ? draftFromSuggestion(selectedSuggestion) : DEFAULT_FIRST_AGENT_DRAFT,
   },
 };

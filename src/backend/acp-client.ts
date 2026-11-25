@@ -746,7 +746,7 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
                 threadId: request.threadId,
                 cwd: request.cwd,
                 includeTurns: request.items === "full",
-                dynamicTools: visibleDynamicTools(this.provider),
+                dynamicTools: visibleDynamicTools(this.provider, false),
               },
               true,
             ),
@@ -1596,7 +1596,9 @@ export class AcpAgentClient extends EventEmitter<ClientEvents> {
       providerResult(yield* Effect.result(this.#ensureInitializedEffect()));
       if (!this.#loadsSessions) return null;
       providerResult(
-        yield* Effect.result(this.#startThread({ ...params, dynamicTools: visibleDynamicTools(this.provider) }, true)),
+        yield* Effect.result(
+          this.#startThread({ dynamicTools: visibleDynamicTools(this.provider, false), ...params }, true),
+        ),
       );
     } catch (error) {
       if (!(error instanceof MissingAcpSessionError)) {

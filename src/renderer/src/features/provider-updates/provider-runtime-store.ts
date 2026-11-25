@@ -11,22 +11,12 @@ import {
   type ServerSummary,
 } from "@openbot/contracts/ipc";
 import { matchingSourceKeys } from "@openbot/i18n";
-import {
-  type ProviderUpdate,
-  providerUpdateAvailable,
-  providerUpdatesToAnnounce,
-} from "@openbot/ui/features/provider-updates/provider-update";
+import { type ProviderUpdate, providerUpdateAvailable } from "@openbot/ui/features/provider-updates/provider-update";
 import { currentText } from "@openbot/ui/text";
 import { createEffect, createSignal, flush, onSettled } from "solid-js";
 import { desktopAnalytics } from "../../analytics";
 import { FALLBACK_PROVIDER_RUNTIMES } from "../../app-defaults";
-import {
-  dismissProviderUpdateToast,
-  hideProviderUpdateToast,
-  providerUpdateOfferClosed,
-  reportProviderUpdateToast,
-  showProviderUpdateToast,
-} from "./provider-update-toast";
+import { hideProviderUpdateToast, reportProviderUpdateToast, showProviderUpdateToast } from "./provider-update-toast";
 
 const PROVIDERS = MANAGED_RUNTIME_PROVIDERS;
 const DOWNLOADABLE_PROVIDERS = [...MANAGED_RUNTIME_PROVIDERS, ...INSTALLER_PROVIDERS];
@@ -88,7 +78,7 @@ export function createProviderRuntimeStore(
   const updating = new Set<AgentProviderId>();
   const failed = new Set<AgentProviderId>();
   const installing = new Set<AgentProviderId>();
-  let announced: ProviderUpdate[] = [];
+  let previousUpdates: ProviderUpdate[] = [];
   let disposed = false;
   let hostReconnected = false;
   const isLocalServer = owners.isLocalServer ?? (() => true);
@@ -242,7 +232,7 @@ export function createProviderRuntimeStore(
       if (!update || stopped) {
         updating.delete(provider);
         installing.delete(provider);
-        dismissProviderUpdateToast(provider);
+        hideProviderUpdateToast(provider);
         continue;
       }
       if (update.runtime.phase === "not-downloaded" || (update.runtime.phase === "ready" && update.availableVersion))
@@ -342,7 +332,7 @@ export function createProviderRuntimeStore(
     const snapshot = await source.cancel(provider);
     updating.delete(provider);
     installing.delete(provider);
-    dismissProviderUpdateToast(provider);
+    hideProviderUpdateToast(provider);
     applyFrom(source, snapshot);
     desktopAnalytics.scope().track("provider_action", {
       provider,
@@ -356,17 +346,13 @@ export function createProviderRuntimeStore(
     (next) => {
       if (!next) return;
       for (const update of next) {
-        const previous = announced.find((entry) => entry.provider === update.provider);
+        const previous = previousUpdates.find((entry) => entry.provider === update.provider);
         if (!previous || !providerUpdateAvailable(previous.runtime, previous.availableVersion)) continue;
         if (update.availableVersion !== null || updating.has(update.provider) || failed.has(update.provider)) continue;
         if (update.runtime.phase === "ready" || update.runtime.phase === "not-downloaded")
           hideProviderUpdateToast(update.provider);
       }
-      for (const update of providerUpdatesToAnnounce(announced, next)) {
-        if (providerUpdateOfferClosed(update.provider, update.availableVersion)) continue;
-        showProviderUpdateToast(update, () => void startProviderUpdate(update.provider));
-      }
-      announced = next;
+      previousUpdates = next;
     },
   );
 

@@ -73,8 +73,24 @@ const OWN_WEB_SEARCH_CATALOG = BUILTIN_TOOL_CATALOG.filter(
   (tool) => tool.name !== `${OPENBOT_DYNAMIC_TOOLS.name}.web_search`,
 );
 
-function catalogFor(provider: AgentProviderId) {
-  return OWN_WEB_SEARCH_PROVIDERS.has(provider) ? OWN_WEB_SEARCH_CATALOG : BUILTIN_TOOL_CATALOG;
+export const AGENT_MEMORY_TOOLS: ReadonlySet<string> = new Set([
+  "search_memories",
+  "list_memories",
+  "set_memory_inclusion",
+  "remember",
+  "forget_memory",
+]);
+
+function withoutPrivateMemory(catalog: typeof BUILTIN_TOOL_CATALOG) {
+  return catalog.filter((tool) => tool.namespace !== "openbot" || !AGENT_MEMORY_TOOLS.has(tool.tool));
+}
+
+const NO_MEMORY_CATALOG = withoutPrivateMemory(BUILTIN_TOOL_CATALOG);
+const OWN_SEARCH_NO_MEMORY_CATALOG = withoutPrivateMemory(OWN_WEB_SEARCH_CATALOG);
+
+function catalogFor(provider: AgentProviderId, memory = true) {
+  if (OWN_WEB_SEARCH_PROVIDERS.has(provider)) return memory ? OWN_WEB_SEARCH_CATALOG : OWN_SEARCH_NO_MEMORY_CATALOG;
+  return memory ? BUILTIN_TOOL_CATALOG : NO_MEMORY_CATALOG;
 }
 
 function catalogNames(catalog: typeof BUILTIN_TOOL_CATALOG): string {
@@ -115,7 +131,11 @@ const TOOL_SEARCH_DESCRIPTION =
 
 function toolDefinitions(catalog: typeof BUILTIN_TOOL_CATALOG) {
   return [
-    ...OPENBOT_TOOL_DEFINITIONS.filter((tool) => DIRECT_NAMES.has(tool.name)),
+    ...OPENBOT_TOOL_DEFINITIONS.filter(
+      (tool) =>
+        DIRECT_NAMES.has(tool.name) &&
+        catalog.some((entry) => entry.namespace === "openbot" && entry.tool === tool.name),
+    ),
     {
       name: "tool_search",
       description: `${TOOL_SEARCH_DESCRIPTION} Catalog: ${catalogNames(catalog)}`,
@@ -152,15 +172,6 @@ function dynamicTools(definitions: ReturnType<typeof toolDefinitions>) {
   ];
 }
 
-const ALL_TOOL_DEFINITIONS = toolDefinitions(BUILTIN_TOOL_CATALOG);
-const OWN_WEB_SEARCH_TOOL_DEFINITIONS = toolDefinitions(OWN_WEB_SEARCH_CATALOG);
-const ALL_DYNAMIC_TOOLS = dynamicTools(ALL_TOOL_DEFINITIONS);
-const OWN_WEB_SEARCH_DYNAMIC_TOOLS = dynamicTools(OWN_WEB_SEARCH_TOOL_DEFINITIONS);
-const KIMI_DYNAMIC_TOOLS = dynamicTools(
-  visibleToolDefinitions("kimi").map((definition) =>
-    definition.name === "tool_call" ? { ...definition, shape: kimiCallShape } : definition,
-  ),
-);
 const ANTIGRAVITY_DISCOVERY_TOOLS: DynamicToolNamespace["tools"] = [
   {
     type: "function",
@@ -190,29 +201,58 @@ const ANTIGRAVITY_DISCOVERY_TOOLS: DynamicToolNamespace["tools"] = [
   },
 ];
 
-const ANTIGRAVITY_DYNAMIC_TOOLS = dynamicTools(toolDefinitions(catalogFor("antigravity"))).map((namespace) =>
-  namespace.name === OPENBOT_DYNAMIC_TOOLS.name
-    ? {
-        ...namespace,
-        tools: namespace.tools.map(
-          (tool) => ANTIGRAVITY_DISCOVERY_TOOLS.find((compact) => compact.name === tool.name) ?? tool,
-        ),
-      }
-    : namespace,
-);
-
-export function toolCatalogNames(provider: AgentProviderId): string {
-  return catalogNames(catalogFor(provider));
+export function toolCatalogNames(provider: AgentProviderId, memory = true): string {
+  return catalogNames(catalogFor(provider, memory));
 }
 
-export function visibleToolDefinitions(provider: AgentProviderId) {
-  return OWN_WEB_SEARCH_PROVIDERS.has(provider) ? OWN_WEB_SEARCH_TOOL_DEFINITIONS : ALL_TOOL_DEFINITIONS;
+function catalogView(catalog: typeof BUILTIN_TOOL_CATALOG) {
+  const definitions = toolDefinitions(catalog);
+  return { definitions, dynamic: dynamicTools(definitions) };
 }
 
-export function visibleDynamicTools(provider: AgentProviderId) {
-  if (provider === "kimi") return KIMI_DYNAMIC_TOOLS;
-  if (provider === "antigravity") return ANTIGRAVITY_DYNAMIC_TOOLS;
-  return OWN_WEB_SEARCH_PROVIDERS.has(provider) ? OWN_WEB_SEARCH_DYNAMIC_TOOLS : ALL_DYNAMIC_TOOLS;
+function providerView(provider: AgentProviderId, memory: boolean) {
+  if (OWN_WEB_SEARCH_PROVIDERS.has(provider)) return memory ? ownSearchView : ownSearchNoMemoryView;
+  return memory ? allView : noMemoryView;
+}
+
+const allView = catalogView(BUILTIN_TOOL_CATALOG);
+const noMemoryView = catalogView(NO_MEMORY_CATALOG);
+const ownSearchView = catalogView(OWN_WEB_SEARCH_CATALOG);
+const ownSearchNoMemoryView = catalogView(OWN_SEARCH_NO_MEMORY_CATALOG);
+
+function kimiTools(memory: boolean) {
+  return dynamicTools(
+    visibleToolDefinitions("kimi", memory).map((definition) =>
+      definition.name === "tool_call" ? { ...definition, shape: kimiCallShape } : definition,
+    ),
+  );
+}
+const kimiWithMemory = kimiTools(true);
+const kimiWithoutMemory = kimiTools(false);
+
+export function visibleToolDefinitions(provider: AgentProviderId, memory = true) {
+  return providerView(provider, memory).definitions;
+}
+
+function antigravityTools(memory: boolean) {
+  return providerView("antigravity", memory).dynamic.map((namespace) =>
+    namespace.name === OPENBOT_DYNAMIC_TOOLS.name
+      ? {
+          ...namespace,
+          tools: namespace.tools.map(
+            (tool) => ANTIGRAVITY_DISCOVERY_TOOLS.find((compact) => compact.name === tool.name) ?? tool,
+          ),
+        }
+      : namespace,
+  );
+}
+const antigravityWithMemory = antigravityTools(true);
+const antigravityWithoutMemory = antigravityTools(false);
+
+export function visibleDynamicTools(provider: AgentProviderId, memory = true) {
+  if (provider === "kimi") return memory ? kimiWithMemory : kimiWithoutMemory;
+  if (provider === "antigravity") return memory ? antigravityWithMemory : antigravityWithoutMemory;
+  return providerView(provider, memory).dynamic;
 }
 
 function mcpCatalogTools(catalog: typeof BUILTIN_TOOL_CATALOG): Map<string, DynamicToolNamespace["tools"][number]> {
@@ -240,7 +280,10 @@ export function withCatalogTools(
   namespaces: readonly DynamicToolNamespace[],
   provider: AgentProviderId,
 ): DynamicToolNamespace[] {
-  const catalog = catalogFor(provider);
+  const hasMemory = namespaces.some(
+    (group) => group.name === "openbot" && group.tools.some((tool) => tool.name === "remember"),
+  );
+  const catalog = catalogFor(provider, hasMemory);
   const tools = mcpCatalogs.get(catalog) ?? mcpCatalogTools(catalog);
   mcpCatalogs.set(catalog, tools);
   return namespaces.map((namespace) => {
@@ -507,8 +550,8 @@ function toolGuidanceFor(entries: readonly (typeof BUILTIN_TOOL_CATALOG)[number]
   return [...new Set(entries.flatMap((entry) => toolGuidance(entry.namespace, entry.tool)))];
 }
 
-export function discoverTools(params: DynamicToolCallParams, provider: AgentProviderId) {
-  const catalog = catalogFor(provider);
+export function discoverTools(params: DynamicToolCallParams, provider: AgentProviderId, memory = true) {
+  const catalog = catalogFor(provider, memory);
   if (params.tool === "tool_search") {
     const search = searchTerms(params);
     if (!search) throw new Error(sourceText("error.agent.toolRequestInvalid"));

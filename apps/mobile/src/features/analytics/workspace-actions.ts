@@ -13,7 +13,8 @@ export function trackWorkspaceActions(
   };
   return {
     ...workspace,
-    createAgent: (input) => run("agent_action", { action: "create" }, () => workspace.createAgent(input)),
+    createAgent: (input, serverId) =>
+      run("agent_action", { action: "create" }, () => workspace.createAgent(input, serverId)),
     updateAgent: (input, serverId) =>
       run("agent_action", { action: "update", ...agentProperties(input.agentId) }, () =>
         workspace.updateAgent(input, serverId),

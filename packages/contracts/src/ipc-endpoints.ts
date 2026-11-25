@@ -1555,6 +1555,7 @@ export const IPC_ENDPOINTS = {
     saveSkillSuggestion: scopedRequest<SaveSkillSuggestionInput, SaveSkillSuggestionResult>()(
       "agent:save-skill-suggestion",
     ),
+    listWorkAreas: scopedQuery<{ areas: string[] | null }>()("agent:list-work-areas"),
     createAgent: scopedRequest<CreateAgentInput, ClientAgentSummary>()("agent:create"),
     duplicateAgent: scopedRequest<string, DuplicateAgentResult>()("agent:duplicate"),
     updateAgent: scopedRequest<UpdateAgentInput, ClientAgentSummary>()("agent:update"),

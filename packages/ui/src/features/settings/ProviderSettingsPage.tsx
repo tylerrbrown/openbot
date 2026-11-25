@@ -170,6 +170,13 @@ export interface ProviderSettingsPageProps extends ProviderRowHost {
         onChange: (choice: ProviderDefaultChoice) => void;
       }
     | undefined;
+  defaultModel?:
+    | {
+        provider: AgentProviderId | null;
+        value: AgentModelId | null;
+        onChange: (provider: AgentProviderId, model: AgentModelId | null) => void;
+      }
+    | undefined;
   disabled?: boolean | undefined;
   onCancelProviderRestart?: ((provider: AgentProviderId) => void | Promise<void>) | undefined;
   onChooseInstalledCli?: ((provider: ManagedProviderId, installed: boolean) => void | Promise<void>) | undefined;
@@ -310,6 +317,10 @@ function ProviderList(props: ProviderSettingsPageProps & { onOpen: (id: PageId) 
       ),
     ),
   );
+  const defaultModels = createMemo(() => {
+    const provider = props.defaultModel?.provider;
+    return provider ? props.modelVisibility?.(provider) : undefined;
+  });
   const connectedRows = () => shown().filter(isConnected);
   const otherRows = () => shown().filter((option) => !isConnected(option));
   const endpoints = () => props.customProviders ?? [];
@@ -329,6 +340,21 @@ function ProviderList(props: ProviderSettingsPageProps & { onOpen: (id: PageId) 
       <Show when={props.defaultProvider}>
         <ItemGroup class="settings-modal-card">
           <DefaultProviderRow {...props} />
+          <Show when={defaultModels()?.list}>
+            {(list) => (
+              <DefaultModelRow
+                list={list()}
+                value={props.defaultModel?.value ?? null}
+                disabled={Boolean(props.disabled || props.defaultProvider?.pending)}
+                onChange={(model) => {
+                  const setting = props.defaultModel;
+                  if (setting?.provider && setting.provider === list().provider)
+                    setting.onChange(setting.provider, model);
+                }}
+                mount={props.menuMount}
+              />
+            )}
+          </Show>
         </ItemGroup>
       </Show>
       <SettingsSection
@@ -518,6 +544,52 @@ function DefaultProviderRow(props: ProviderSettingsPageProps) {
             <SelectValue<DefaultChoice>>{(value) => <ChoiceLabel choice={value.selectedOption()} />}</SelectValue>
           </SelectTrigger>
           <SelectContent mount={props.menuMount} />
+        </Select>
+      </ItemActions>
+    </Item>
+  );
+}
+
+function DefaultModelRow(props: {
+  list: ProviderModelVisibility;
+  value: AgentModelId | null;
+  disabled: boolean;
+  onChange: (model: AgentModelId | null) => void;
+  mount: HTMLElement | undefined;
+}) {
+  const { t } = useText();
+  const choices = createMemo(() => {
+    const shown = new Set(props.list.shown);
+    return [
+      { id: "", name: t("app.modelVariant.default") },
+      ...props.list.models.filter((model) => shown.has(model.id)),
+    ];
+  });
+  const label = () =>
+    props.list.models.find((model) => model.id === props.value)?.name ?? props.value ?? t("app.modelVariant.default");
+  return (
+    <Item class="settings-modal-row">
+      <ItemContent>
+        <ItemTitle>{t("provider.settings.defaultModel")}</ItemTitle>
+      </ItemContent>
+      <ItemActions>
+        <Select<{ id: string; name: string }>
+          class="provider-settings-select"
+          options={choices()}
+          optionValue="id"
+          optionTextValue="name"
+          value={choices().find((choice) => choice.id === (props.value ?? "")) ?? null}
+          disabled={props.disabled}
+          placement="bottom-end"
+          onChange={(choice) => {
+            if (choice) props.onChange(choice.id || null);
+          }}
+          itemComponent={(item) => <SelectItem item={item.item}>{item.item.rawValue.name}</SelectItem>}
+        >
+          <SelectTrigger size="sm" aria-label={t("provider.settings.defaultModel")}>
+            {label()}
+          </SelectTrigger>
+          <SelectContent mount={props.mount} />
         </Select>
       </ItemActions>
     </Item>

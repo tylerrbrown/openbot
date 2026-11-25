@@ -57,6 +57,15 @@
   padding: var(--openbot-space-6) 0;
 }
 
+.first-agent-work-area h1,
+.first-agent-work-area p {
+  margin: 0;
+}
+
+.first-agent-work-area h1 {
+  font-size: var(--openbot-text-lg);
+}
+
 .first-agent-live-avatar {
   display: grid;
   width: 72px;
@@ -88,6 +97,17 @@
   grid-template-columns: repeat(9, 28px);
   justify-content: center;
   gap: var(--openbot-space-1);
+}
+
+.first-agent-face-fieldset {
+  display: grid;
+  row-gap: var(--openbot-space-3);
+}
+
+.first-agent-face-fieldset .avatar-style-tabs {
+  display: flex;
+  width: fit-content;
+  margin-inline: auto;
 }
 
 .first-agent-face-options {
@@ -163,6 +183,10 @@
   min-height: 64px;
   max-height: 240px;
   overflow-y: auto;
+}
+
+.first-agent-fields .ui-textarea::placeholder {
+  font-style: italic;
 }
 
 .ui-button.first-agent-submit {

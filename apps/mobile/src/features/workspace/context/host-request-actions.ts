@@ -109,6 +109,7 @@ import { AGENT_THREAD_FILES_CAPABILITY } from "@openbot/contracts/team-protocol/
 import { AGENT_THREAD_READS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-thread-reads-v1";
 import { AGENT_THREADS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-threads-v1";
 import { AGENT_UPDATE_CAPABILITY } from "@openbot/contracts/team-protocol/agent-update-v1";
+import { AGENT_WORK_AREA_CAPABILITY } from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import {
   BACKGROUND_PROCESSES_CAPABILITY,
   BACKGROUND_PROCESSES_ROUTES,
@@ -764,6 +765,7 @@ export function createHostRequestChecks(capabilities: ServerCapabilities): HostR
     canCompactContext: (serverId) => has(serverId, CONTEXT_COMPACT_CAPABILITY),
     canDeleteChatHistory: (serverId) => has(serverId, CHAT_HISTORY_CAPABILITY),
     canChooseNewAgentModel: (serverId) => has(serverId, TEAM_AGENT_CREATE_MODEL_CAPABILITY),
+    requiresAgentWorkArea: (serverId) => has(serverId, AGENT_WORK_AREA_CAPABILITY),
     canInstallAgentTemplate: (serverId) => has(serverId, AGENT_INSTALL_CAPABILITY),
     canEditQueue: (serverId) => has(serverId, TEAM_QUEUE_EDIT_CAPABILITY),
     canReadModelSteering: (serverId) => has(serverId, MODEL_STEERING_CAPABILITY),

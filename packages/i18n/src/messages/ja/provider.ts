@@ -125,6 +125,8 @@ export const messages = {
     "これらのモデルは、Windows と Linux では「ワークスペースのみ」で動作しません。使うには、エージェントの設定で「権限」を変更してください。",
   "provider.picker.olderModels": "以前のモデル",
   "provider.picker.olderModelsList": "{name} の以前のモデル",
+  "provider.picker.useServerDefault": "サーバーの既定値を使用",
+  "provider.settings.defaultModel": "既定のモデル",
   "provider.picker.noModels":
     "ここには {name} のモデルが表示されていません。オフになっている場合は、管理者が「サーバーの設定」>「プロバイダー」>「{name}」>「モデル」でオンにできます。",
   "provider.picker.endpointModelsInCustom":

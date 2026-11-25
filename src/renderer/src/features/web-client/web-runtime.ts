@@ -123,6 +123,7 @@ import {
   AGENT_WAITS_ROUTES,
   decodeAgentWaitsResponse,
 } from "@openbot/contracts/team-protocol/agent-waits-v1";
+import { AGENT_WORK_AREA_ROUTES, type WorkAreasResponse } from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import {
   BROWSER_PAGE_STATE_CAPABILITY,
   BROWSER_PAGE_STATE_ROUTES,
@@ -437,6 +438,7 @@ export interface WebWorkspaceRuntime {
   status(): Promise<AgentStatus>;
   modelSources?: () => Promise<ProviderModelSourceEntry[]>;
   accountUsage?: () => Promise<AccountUsage>;
+  listWorkAreas(): Promise<WorkAreasResponse>;
   createAgent(input: CreateAgentInput): Promise<ClientAgentSummary>;
   duplicateAgent(agentId: string): Promise<DuplicateAgentResult>;
   updateAgent(input: UpdateAgentInput): Promise<void>;
@@ -1699,6 +1701,12 @@ export function createWebWorkspaceRuntime(
       ]);
       if (!isAccountUsage(value)) throw new Error(currentText().t("error.remote.invalidData"));
       return withUsageCredits(value, credits);
+    },
+    async listWorkAreas() {
+      const value = await request("GET", AGENT_WORK_AREA_ROUTES.list);
+      if (!isDynamicRecord(value) || !Array.isArray(value.areas) || !value.areas.every(isString))
+        throw new Error(currentText().t("error.remote.invalidData"));
+      return { areas: value.areas };
     },
     async createAgent(input) {
       const { avatarColor, providerAccountId, ...profile } = input;

@@ -129,6 +129,7 @@ import { StorageUsageScanner, StorageUsageService } from "../backend/storage-usa
 import { TeamChatStore } from "../backend/team-chat-store";
 import { UserBrowsingLog } from "../backend/user-browsing-log";
 import { UserFilesBytes } from "../backend/user-files-bytes";
+import { workAreaSetupAvailable } from "../backend/work-area-bootstrap";
 import { WORKFLOW_FOLDERS_FILE, WorkflowFoldersStore } from "../backend/workflow-folders-store";
 import { clearFlatBackground } from "../backend/workflows/flat-background";
 import { workflowFileOwners } from "../backend/workflows/workflow-file-owners";
@@ -2060,8 +2061,19 @@ export async function createApplicationServices({
     storage: storageUsage,
     agents: () => service.listAgents(),
   });
+  const modelVisibility = new ModelVisibility({
+    path: join(userData, MODEL_VISIBILITY_PREFERENCE_FILE),
+    catalog: modelReleaseCatalog,
+    listModels: () => service.listModels(),
+    listAgents: () => service.listAgents(),
+    customEndpoints: () => customProviders.list(),
+    modelsChanged: () => service.notifyProviderSettingsChanged(),
+  });
+  await runCauseEffect(modelVisibility.load());
   let hostedStorageGb: number | null = null;
   const service: AgentService = new AgentService({
+    piNamingMemberId: () => host.conversationSender()?.id,
+    newAgentModelShown: (provider, model) => modelVisibility.isShown(provider, model),
     store,
     mailbox,
     browser,
@@ -2174,6 +2186,7 @@ export async function createApplicationServices({
         : Effect.void,
     preferredProvider: setupState.preferredProvider ?? "codex",
     bundledExecutables: providerRuntimes.bundledExecutables(),
+    requireWorkArea: workAreaSetupAvailable,
     prepareAgentWorkspace: (agent) =>
       Effect.gen(function* () {
         yield* managedSkills.syncAgent(agent);
@@ -2294,15 +2307,6 @@ export async function createApplicationServices({
   const claudeCompactWindowSetting = claudeCompactWindowControl(claudeCompactWindow, () =>
     service.notifyProviderSettingsChanged(),
   );
-  const modelVisibility = new ModelVisibility({
-    path: join(app.getPath("userData"), MODEL_VISIBILITY_PREFERENCE_FILE),
-    catalog: modelReleaseCatalog,
-    listModels: () => service.listModels(),
-    listAgents: () => service.listAgents(),
-    customEndpoints: () => customProviders.list(),
-    modelsChanged: () => service.notifyProviderSettingsChanged(),
-  });
-  await runCauseEffect(modelVisibility.load());
   const turnAnswer = (agentId: string, turnId: string): string | null =>
     latestTurnAnswer(store.database.readTurnAssistantMessages(agentId, turnId), turnId)?.text ?? null;
   const automation = new AutomationServer({

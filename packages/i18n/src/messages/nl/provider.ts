@@ -117,6 +117,8 @@ export const messages = {
     "Deze modellen werken niet met ‘Alleen werkruimte’ op Windows en Linux. Wijzig ‘Machtigingen’ in de agentinstellingen om ze te gebruiken.",
   "provider.picker.olderModels": "Oudere modellen",
   "provider.picker.olderModelsList": "Oudere {name}-modellen",
+  "provider.picker.useServerDefault": "Serverstandaard gebruiken",
+  "provider.settings.defaultModel": "Standaardmodel",
   "provider.picker.noModels":
     "Hier staan geen modellen van {name}. Als ze uitstaan, kan een beheerder ze aanzetten in Serverinstellingen > Aanbieders > {name} > Modellen.",
   "provider.picker.endpointModelsInCustom":

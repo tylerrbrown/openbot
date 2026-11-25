@@ -123,6 +123,8 @@ export const messages = {
     "Questi modelli non funzionano con «Solo workspace» su Windows e Linux. Per usarli, cambia «Permessi» nelle impostazioni dell'agente.",
   "provider.picker.olderModels": "Modelli precedenti",
   "provider.picker.olderModelsList": "Modelli {name} precedenti",
+  "provider.picker.useServerDefault": "Usa la scelta predefinita del server",
+  "provider.settings.defaultModel": "Modello predefinito",
   "provider.picker.noModels":
     "Qui non compare nessun modello di {name}. Se sono disattivati, un amministratore può attivarli in Impostazioni server > Provider > {name} > Modelli.",
   "provider.picker.endpointModelsInCustom":

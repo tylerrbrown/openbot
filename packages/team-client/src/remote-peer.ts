@@ -21,6 +21,7 @@ import {
   decodeTeamProtocolV10WebRtcHttpResponse,
   encodeTeamProtocolV2Frame,
   encodeTeamProtocolV9WebRtcHttpRequest,
+  encodeTeamProtocolV10WebRtcHttpRequest,
   TEAM_BOOTSTRAP_CAPABILITIES,
   TEAM_PROTOCOL_V2_CHANNELS,
   TEAM_PROTOCOL_V2_MAX_FILE_BYTES,
@@ -1826,6 +1827,10 @@ export function createRemoteTeamPeer(
         if (peer !== state || !isPeerOnline(state))
           return yield* new RemotePeerError({ message: sourceText("error.remote.attachmentConnectionChanged") });
         const sideRoute = teamSideRouteCodec(path);
+        const encodeRequest =
+          (state.hostProtocol ?? 0) >= TEAM_PROTOCOL_V10
+            ? encodeTeamProtocolV10WebRtcHttpRequest
+            : encodeTeamProtocolV9WebRtcHttpRequest;
         const payloadBody = upload
           ? null
           : sideRoute
@@ -1839,7 +1844,7 @@ export function createRemoteTeamPeer(
               )
             : // A caller names a provider and model on agent creation only when the host advertises
               yield* peerDecode(() =>
-                encodeTeamProtocolV9WebRtcHttpRequest(method, path, body, {
+                encodeRequest(method, path, body, {
                   preserveSemanticTags: true,
                   agentCreateModel: true,
                 }),

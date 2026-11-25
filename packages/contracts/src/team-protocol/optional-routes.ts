@@ -39,6 +39,7 @@ import { AGENT_THREADS_CODECS } from "./agent-threads-v1";
 import { AGENT_UPDATE_CODECS } from "./agent-update-v1";
 import { AGENT_USAGE_LIMIT_CODECS } from "./agent-usage-limit-v1";
 import { AGENT_WAITS_CODECS } from "./agent-waits-v1";
+import { AGENT_WORK_AREA_CODECS } from "./agent-work-area-v1";
 import { BACKGROUND_PROCESSES_CODECS } from "./background-processes-v1";
 import { BITWARDEN_CONNECTOR_CODECS } from "./bitwarden-connector-v1";
 import { BROWSER_PAGE_STATE_CODECS } from "./browser-page-state-v1";
@@ -248,6 +249,7 @@ const CODECS: ReadonlyMap<string, OptionalRouteCodec> = new Map([
   ...PUSH_NOTIFICATION_THREADS_CODECS,
   ...HOSTED_SITES_CODECS,
   ...WORKSPACE_DIRECTORY_CODECS,
+  ...AGENT_WORK_AREA_CODECS,
   ...AGENT_HOST_SETTINGS_CODECS,
   ...AGENT_BACKUP_MODELS_CODECS,
   ...AGENT_TASK_LIMIT_CODECS,

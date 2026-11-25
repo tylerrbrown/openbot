@@ -1,11 +1,14 @@
 import { isKnownAgentProvider } from "@openbot/contracts/agent-providers";
 import type { AccountUsage, AgentStatus, ClientAgentModelOption, CustomProviderSummary } from "@openbot/contracts/ipc";
-import { AGENT_WELCOME_CAPABILITY, TEAM_AGENT_CREATE_MODEL_CAPABILITY } from "@openbot/contracts/team-protocol/current";
+import {
+  AGENT_WELCOME_CAPABILITY,
+  AGENT_WORK_AREA_CAPABILITY,
+  TEAM_AGENT_CREATE_MODEL_CAPABILITY,
+} from "@openbot/contracts/team-protocol/current";
 import { type CreationPreference, resolveCreationModel } from "@openbot/ui/features/agents/agent-creation-model";
 import { createAgentInitialMessage } from "@openbot/ui/features/agents/agent-initial-message";
 import {
   createFirstAgentDraft,
-  FIRST_AGENT_SUGGESTIONS,
   type FirstAgentDraft,
   FirstAgentSetup,
 } from "@openbot/ui/features/agents/FirstAgentSetup";
@@ -16,6 +19,7 @@ import type { WebWorkspaceRuntime } from "./web-runtime";
 export function WebAgentSettings(props: {
   runtime: WebWorkspaceRuntime;
   capabilities: string[];
+  hostId: string | undefined;
   first: boolean;
   preference?: CreationPreference | null | undefined;
   customProviders?: readonly CustomProviderSummary[] | undefined;
@@ -38,6 +42,7 @@ export function WebAgentSettings(props: {
     error: string | null;
     uncertain: boolean;
     modelTouched: boolean;
+    useServerDefault: boolean;
   }>({
     draft: props.initialDraft ?? createFirstAgentDraft(),
     models: [],
@@ -46,6 +51,7 @@ export function WebAgentSettings(props: {
     error: null,
     uncertain: false,
     modelTouched: false,
+    useServerDefault: !(props.first && props.preference?.preferredProvider),
   });
   let disposed = false;
   let modelRequestGeneration = 0;
@@ -63,10 +69,7 @@ export function WebAgentSettings(props: {
     setState((draft) => {
       draft.models = models;
       draft.status = status;
-      const selected = models.find(
-        (model) => model.provider === draft.draft.provider && model.id === draft.draft.model,
-      );
-      if (draft.modelTouched && selected) return;
+      if (draft.modelTouched) return;
       const resolved = resolveCreationModel(props.preference ?? null, models, status);
       if (resolved) {
         draft.draft.provider = resolved.provider;
@@ -128,14 +131,11 @@ export function WebAgentSettings(props: {
     });
     let created = false;
     try {
-      const selectedModel = state.models.find((model) => model.provider === value.provider && model.id === value.model);
-      const agent = await props.runtime.createAgent({
-        name: value.name,
-        description: value.purpose,
-        initialMessage: createAgentInitialMessage(value, props.capabilities.includes(AGENT_WELCOME_CAPABILITY)),
-        avatarSeed: value.avatarSeed,
-        avatarHue: value.avatarHue,
-        ...(supportsModelSelection() && selectedModel && isKnownAgentProvider(selectedModel.provider)
+      const override = supportsModelSelection() && !state.useServerDefault;
+      const selectedModel =
+        override && state.models.find((model) => model.provider === value.provider && model.id === value.model);
+      const selection =
+        selectedModel && isKnownAgentProvider(selectedModel.provider)
           ? {
               provider: selectedModel.provider,
               model: selectedModel.id,
@@ -144,7 +144,21 @@ export function WebAgentSettings(props: {
                 ? { providerAccountId: value.providerAccountId }
                 : {}),
             }
-          : {}),
+          : null;
+      if (override && !selection) {
+        setState((draft) => {
+          draft.error = t("error.agent.modelUnavailable");
+        });
+        return;
+      }
+      const agent = await props.runtime.createAgent({
+        name: value.name,
+        description: value.purpose,
+        initialMessage: createAgentInitialMessage(value, props.capabilities.includes(AGENT_WELCOME_CAPABILITY)),
+        ...(value.workArea ? { workArea: value.workArea } : {}),
+        avatarSeed: value.avatarSeed,
+        avatarHue: value.avatarHue,
+        ...selection,
       });
       created = true;
       if (!disposed) {
@@ -167,11 +181,26 @@ export function WebAgentSettings(props: {
   return (
     <FirstAgentSetup
       value={state.draft}
-      suggestions={FIRST_AGENT_SUGGESTIONS}
+      workAreas={
+        props.hostId && props.capabilities.includes(AGENT_WORK_AREA_CAPABILITY)
+          ? { scope: props.hostId, load: () => props.runtime.listWorkAreas() }
+          : undefined
+      }
       mode={props.first ? "first" : "additional"}
       submitting={state.busy}
       error={state.error}
       modelOptions={supportsModelSelection() && state.models.length > 0 ? state.models : undefined}
+      useServerDefault={state.useServerDefault && supportsModelSelection()}
+      onUseServerDefaultChange={
+        supportsModelSelection()
+          ? (enabled) =>
+              setState((draft) => {
+                draft.useServerDefault = enabled;
+                draft.modelTouched = !enabled;
+                draft.error = null;
+              })
+          : undefined
+      }
       agentStatus={state.status ?? undefined}
       accountChoice={props.accountChoice}
       accountUsage={props.accountUsage}

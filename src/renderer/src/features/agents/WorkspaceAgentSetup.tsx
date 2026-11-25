@@ -1,7 +1,10 @@
-import { TEAM_AGENT_CREATE_MODEL_CAPABILITY } from "@openbot/contracts/team-protocol/current";
+import {
+  AGENT_WORK_AREA_CAPABILITY,
+  TEAM_AGENT_CREATE_MODEL_CAPABILITY,
+} from "@openbot/contracts/team-protocol/current";
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "@openbot/contracts/team-protocol/provider-accounts-v1";
 import { resolveCreationModel } from "@openbot/ui/features/agents/agent-creation-model";
-import { FIRST_AGENT_SUGGESTIONS, FirstAgentSetup } from "@openbot/ui/features/agents/FirstAgentSetup";
+import { FirstAgentSetup } from "@openbot/ui/features/agents/FirstAgentSetup";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import { useProviders } from "../../providers";
 import { useAuth } from "../account/account-context";
@@ -12,6 +15,7 @@ import { useServerSettings } from "../servers/server-settings";
 import { useServers } from "../servers/servers-context";
 import { useAgentActions } from "./agent-actions";
 import { useAgents } from "./agents-context";
+import { agentsPort } from "./agents-port";
 import { withHostAccountUsage } from "./host-provider-accounts";
 
 export function WorkspaceAgentSetup() {
@@ -31,7 +35,7 @@ export function WorkspaceAgentSetup() {
   const { createAgent } = useAgentActions();
   const { setupState } = useSetup();
   const { customAgents } = useCustomAgents();
-  const { activeServer, activeServerSupportsCapability } = useServers();
+  const { activeServer, activeServerId, activeServerSupportsCapability } = useServers();
   const {
     providerRuntimeStatuses,
     providerRuntimeDownloadsAvailable,
@@ -87,7 +91,11 @@ export function WorkspaceAgentSetup() {
   return (
     <FirstAgentSetup
       value={agentSetupDraft()}
-      suggestions={FIRST_AGENT_SUGGESTIONS}
+      workAreas={
+        activeServer()?.kind !== "remote" || activeServerSupportsCapability(AGENT_WORK_AREA_CAPABILITY)
+          ? { scope: activeServerId(), load: (serverId) => agentsPort().agent.listWorkAreas(serverId) }
+          : undefined
+      }
       mode={agentList().length === 0 ? "first" : "additional"}
       submitting={creatingAgent()}
       error={agentSetupError()}

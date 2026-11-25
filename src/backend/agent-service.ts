@@ -311,6 +311,7 @@ import {
   workflowMediaAnswerError,
   workflowMediaError,
 } from "./agent/workflow-generation-error";
+import { readAgentInstructionsFile, saveAgentInstructionsFile } from "./agent/workspace-instructions";
 import { confinedWritesAllowed, effectiveAgentFolders } from "./agent/workspace-sandbox";
 import type { AgentApiKeys } from "./agent-api-keys";
 import type { AgentProvider } from "./agent-client";
@@ -371,6 +372,7 @@ import { shortenDiagnostic } from "./stderr-diagnostics";
 import { extractJsonObject } from "./structured-output";
 import type { UserBrowsingLog } from "./user-browsing-log";
 import type { VaultItems } from "./vault-items";
+import { bootstrapWorkArea, listWorkAreas } from "./work-area-bootstrap";
 import { type CreditMediaGateway, CreditMediaWorkflows } from "./workflows/credit-media";
 import { generateHiggsfieldMedia, HIGGSFIELD_MCP_HOST, readHiggsfieldCredits } from "./workflows/higgsfield-media";
 import { WorkflowMediaCatalogCache } from "./workflows/media-catalog";
@@ -414,6 +416,7 @@ interface AgentServiceEvents {
 }
 
 export interface AgentServiceOptions {
+  piNamingMemberId?: () => string | undefined;
   store: AgentStore;
   mailbox: MailboxStore;
   browser: AgentBrowserHost;
@@ -428,6 +431,7 @@ export interface AgentServiceOptions {
   clientFactory?: AgentClientFactory | null;
   bundledExecutables?: BundledProviderExecutables;
   prepareAgentWorkspace?: (agent: AgentSummary) => Effect.Effect<void, AgentLifecycleFailed>;
+  requireWorkArea?: () => boolean;
   hostedSites?: AgentHostedSites | null;
   visualPreview?: ChatVisualPreviewHost | null;
   setCommitCoAuthor?: SetCommitCoAuthor | undefined;
@@ -481,6 +485,7 @@ export interface AgentServiceOptions {
   ) => Effect.Effect<void, AgentRemovalFailed>;
   tables?: AgentTables | null;
   developmentDefaults?: boolean;
+  newAgentModelShown?: (provider: AgentProvider, model: AgentModelId) => boolean;
   computerUseMcpServer?: () => McpServerConfig | null;
   githubConnector?: GitHubConnectorSource | null;
   passwordVault?: PasswordVault | null;
@@ -574,6 +579,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #providerUseChanges = Semaphore.makeUnsafe(1);
   readonly #endpoints: CustomEndpoints;
   readonly #prepareAgentWorkspace: (agent: AgentSummary) => Effect.Effect<void, AgentLifecycleFailed>;
+  readonly #requireWorkArea: () => boolean;
   readonly #hostedSites: HostedSiteCoordinator;
   readonly #conversation: ConversationRuntime;
   readonly #attention: AttentionRegistry;
@@ -604,6 +610,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
   readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #developmentDefaults: boolean;
+  readonly #newAgentModelShown: (provider: AgentProvider, model: AgentModelId) => boolean;
   readonly #busyMessageMode: () => BusyMessageMode;
   readonly #defaultTaskLimit: () => number;
   readonly #stoppedTurns = new Map<string, string>();
@@ -634,6 +641,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       clientFactory = null,
       bundledExecutables = DEFAULT_BUNDLED_EXECUTABLES,
       prepareAgentWorkspace = () => Effect.void,
+      requireWorkArea = () => false,
       hostedSites = null,
       sidebarLayout = null,
       libraryFolders = null,
@@ -650,6 +658,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       approvalAutomation,
     } = options;
     this.#developmentDefaults = developmentDefaults;
+    this.#newAgentModelShown = options.newAgentModelShown ?? (() => true);
     this.#busyMessageMode = busyMessageMode;
     this.#defaultTaskLimit = () => hostTurnLimits?.agentTaskLimit() ?? AGENT_TASK_LIMIT_DEFAULT;
     this.#localSkillTools = localSkillTools;
@@ -708,6 +717,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#mailbox = mailbox;
     this.#browser = browser;
     this.#prepareAgentWorkspace = prepareAgentWorkspace;
+    this.#requireWorkArea = requireWorkArea;
     this.#conversation = new ConversationRuntime(
       store,
       (event) => this.#emit(event),
@@ -1795,6 +1805,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#turnRunsNowhere(agentId, turnId) ? this.#settleStaleOwnTurn(agentId, threadId, turnId) : null,
         orphanedDeliveryRecovery: (agentId) =>
           this.#mayRecoverOrphanedDeliveries(agentId) ? this.#recoverOrphanedDeliveries(agentId) : null,
+        piNamingMemberId: () => options.piNamingMemberId?.(),
         turnRestarting: (turnId) => this.#turn.forgetEnded(turnId),
         deliveriesStarting: (deliveryIds, start) => this.#turn.deliveriesStarting(deliveryIds, start),
         startRequestedNewChat: (agentId, queuedRuns) => this.#startRequestedNewChat(agentId, queuedRuns),
@@ -3410,10 +3421,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#providers.preferredProvider();
   }
 
+  #newAgentModels(): AgentModelOption[] {
+    return this.#endpoints.available().filter(({ provider, id }) => this.#newAgentModelShown(provider, id));
+  }
+
   newAgentProvider(input: Pick<CreateAgentInput, "provider" | "model"> = {}): AgentProvider | null {
+    const models = this.#newAgentModels();
     return (
-      (creationModel(input, this.#endpoints.available(), this.#providers.status().providers) ?? this.#startingChoice())
-        ?.provider ?? null
+      (creationModel(input, models, this.#providers.status().providers) ?? this.#startingChoice())?.provider ?? null
     );
   }
 
@@ -3443,8 +3458,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#mailbox.forgetIdempotencyKeys("agent-create:", new Date(Date.now() - USER_SEND_RETRY_WINDOW_MS));
     const pending = this.#pendingAgentCreates.get(key);
     if (pending) return yield* Deferred.await(pending);
-    const createdId = this.#mailbox.receiptForKey(key)?.deliveries[0]?.recipientAgentId;
-    const created = createdId ? this.#store.get(createdId) : undefined;
+    const setupReceipt = this.#store.database.commandResult(key);
+    const createdId = this.#mailbox.receiptForKey(key)?.deliveries[0]?.recipientAgentId ?? setupReceipt;
+    const created = typeof createdId === "string" ? this.#store.get(createdId) : undefined;
     if (created) return created;
     this.#mailbox.forgetIdempotencyKey(key);
     const start = Deferred.makeUnsafe<AgentSummary, AgentLifecycleFailed>();
@@ -3465,13 +3481,36 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     agentSetup: boolean,
     idempotencyKey: string | undefined,
   ) {
+    const workArea = input.workArea?.trim();
+    if (!workArea && this.#requireWorkArea())
+      return yield* new AgentLifecycleFailed({
+        operation: "check Work area",
+        cause: new Error("Choose and confirm a Work area before creating an agent."),
+      });
     const initialMessage = yield* lifecycleStep("validate initial message", () => {
       const text = input.initialMessage.trim();
-      if (!text) throw new Error(sourceText("error.agent.initialMessageRequired"));
+      if (!text && !workArea) throw new Error(sourceText("error.agent.initialMessageRequired"));
       if (input.initialMessage.length > INPUT_LIMITS.messageText)
         throw new Error(sourceText("error.agent.initialMessageTooLong"));
       return text;
     });
+    if (workArea) {
+      const areas = yield* Effect.tryPromise({
+        try: listWorkAreas,
+        catch: (cause) => new AgentLifecycleFailed({ operation: "list Work areas", cause }),
+      });
+      if (!areas.includes(workArea))
+        return yield* new AgentLifecycleFailed({
+          operation: "check Work area",
+          cause: new Error("This Work area is not available on the host. Choose another one."),
+        });
+    }
+    const startupReceipt = workArea
+      ? yield* Effect.tryPromise({
+          try: () => bootstrapWorkArea(workArea),
+          catch: (cause) => new AgentLifecycleFailed({ operation: "run Work area startup", cause }),
+        })
+      : null;
     let agent = yield* this.#store
       .createAgent(input, profileOperationId)
       .pipe(
@@ -3479,6 +3518,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
     const result = yield* Effect.result(
       Effect.gen({ self: this }, function* () {
+        if (workArea) yield* this.#saveWorkArea(agent, workArea);
         yield* this.#prepareAgentWorkspace(agent);
         agent = yield* this.#assignNewAgentModel(agent, input, true);
         if (configure) agent = yield* configure(agent);
@@ -3487,14 +3527,35 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           .pipe(
             Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "create agent", cause: failure.cause })),
           );
-        yield* this.#sendUserMessage(
-          { agentId: agent.id, text: initialMessage, attachmentDraftIds: [] },
-          sender,
-          undefined,
-          idempotencyKey,
-          welcome,
-          agentSetup,
-        );
+        if (startupReceipt) {
+          this.#appendSystemMessage(
+            agent.id,
+            {
+              id: `startup-${randomUUID()}`,
+              author: "system",
+              source: "system",
+              text: startupReceipt,
+              createdAt: new Date().toISOString(),
+              status: "completed",
+            },
+            "thread.startup-receipt",
+          );
+        }
+        if (initialMessage)
+          yield* this.#sendUserMessage(
+            { agentId: agent.id, text: initialMessage, attachmentDraftIds: [] },
+            sender,
+            undefined,
+            idempotencyKey,
+            !startupReceipt && welcome,
+            agentSetup,
+          );
+        else if (startupReceipt && idempotencyKey)
+          this.#store.database.dispatch(
+            idempotencyKey,
+            [{ aggregateType: "agent", aggregateId: agent.id, eventType: "agent.setup-completed", payload: {} }],
+            () => agent.id,
+          );
         return this.#store.get(agent.id) ?? agent;
       }).pipe(
         Effect.catchDefect((cause) => Effect.fail(new AgentLifecycleFailed({ operation: "create agent", cause }))),
@@ -3514,6 +3575,22 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     });
   }, Effect.uninterruptible).bind(this);
 
+  /** Saves the Work area in the agent's Instructions for later chats. */
+  readonly #saveWorkArea = Effect.fn("AgentService.saveWorkArea")(function* (
+    this: AgentService,
+    agent: AgentSummary,
+    workArea: string,
+  ) {
+    const failed = (operation: string) => (cause: unknown) => new AgentLifecycleFailed({ operation, cause });
+    const file = yield* readAgentInstructionsFile(agent.workspacePath).pipe(
+      Effect.mapError(failed("read Instructions")),
+    );
+    const text = `${file.text.trimEnd()}${file.text.trim() ? "\n\n" : ""}## Work area\n\n- ${workArea}\n`;
+    yield* saveAgentInstructionsFile(agent.workspacePath, text, file.text).pipe(
+      Effect.mapError(failed("save Work area")),
+    );
+  });
+
   #assignNewAgentModel(
     agent: AgentSummary,
     input: Omit<CreateAgentInput, "initialMessage">,
@@ -3523,8 +3600,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#endpoints
       .runExclusive(() =>
         Effect.gen({ self: this }, function* () {
+          const models = this.#newAgentModels();
           const requested = yield* lifecycleStep("select requested model", () =>
-            creationModel(input, this.#endpoints.available(), this.#providers.status().providers),
+            creationModel(input, models, this.#providers.status().providers),
           );
           if (requested) {
             yield* lifecycleStep("check provider switch", () => this.#providers.requireProviderOn(requested.provider));
@@ -3556,7 +3634,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           if (starting) return yield* this.#landOnStartingChoice(agent, starting);
           yield* lifecycleStep("check starting model", () => {
             this.#providers.requireProviderOn(agent.provider);
-            if (needsModel)
+            if (needsModel || !this.#newAgentModelShown(agent.provider, agent.model))
               throw new Error(
                 sourceText("error.agent.noStartingModelInSettings", {
                   provider: providerLabel(this.#preference().provider),

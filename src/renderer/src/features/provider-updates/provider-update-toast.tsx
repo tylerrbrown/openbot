@@ -138,14 +138,12 @@ function samePresentation(a: ProviderUpdatePresentation, b: ProviderUpdatePresen
 interface LiveProviderUpdateToast {
   present: (update: ProviderUpdate) => void;
   setAct: (act: () => void) => void;
-  setOffer: (version: string | null) => void;
 }
 
 const liveToasts = new Map<AgentProviderId, LiveProviderUpdateToast>();
 const dismissTimers = new Map<AgentProviderId, number>();
 const disposers = new Map<AgentProviderId, () => void>();
 const notificationsOwner = createRoot(() => getOwner());
-const closedOffers = new Map<AgentProviderId, string>();
 
 function releaseProviderUpdateToast(provider: AgentProviderId): void {
   const timer = dismissTimers.get(provider);
@@ -171,7 +169,6 @@ function liveToast(provider: AgentProviderId, update: ProviderUpdate): LiveProvi
       const [clamped, setClamped] = createSignal(false);
       const [expanded, setExpanded] = createSignal(false);
       let act = (): void => {};
-      let offered: string | null = null;
 
       const live: LiveProviderUpdateToast = {
         present: (nextUpdate) => {
@@ -183,16 +180,12 @@ function liveToast(provider: AgentProviderId, update: ProviderUpdate): LiveProvi
         setAct: (next) => {
           act = next;
         },
-        setOffer: (version) => {
-          offered = version;
-        },
       };
       liveToasts.set(provider, live);
       disposers.set(provider, dispose);
 
       return {
         live,
-        offeredVersion: () => offered,
         title: () => {
           clamped();
           expanded();
@@ -228,8 +221,6 @@ function liveToast(provider: AgentProviderId, update: ProviderUpdate): LiveProvi
     duration: PERSISTENT,
     onDismiss: () => {
       if (liveToasts.get(provider) !== parts.live) return;
-      const closed = parts.offeredVersion();
-      if (closed) closedOffers.set(provider, closed);
       releaseProviderUpdateToast(provider);
     },
   });
@@ -241,15 +232,9 @@ export function showProviderUpdateToast(update: ProviderUpdate, onUpdate: () => 
   const timer = dismissTimers.get(update.provider);
   if (timer !== undefined) window.clearTimeout(timer);
   dismissTimers.delete(update.provider);
-  const presentation = presentProviderUpdate(update);
   const live = liveToast(update.provider, update);
   live.present(update);
   live.setAct(onUpdate);
-  live.setOffer(presentation.updatable ? update.availableVersion : null);
-}
-
-export function providerUpdateOfferClosed(provider: AgentProviderId, availableVersion: string | null): boolean {
-  return availableVersion !== null && closedOffers.get(provider) === availableVersion;
 }
 
 export function hideProviderUpdateToast(provider: AgentProviderId): void {
@@ -263,7 +248,6 @@ export function reportProviderUpdateToast(update: ProviderUpdate, onRetry: () =>
   const presentation = presentProviderUpdate(update);
   live.present(update);
   live.setAct(onRetry);
-  live.setOffer(presentation.updatable ? update.availableVersion : null);
 
   const timer = dismissTimers.get(update.provider);
   if (timer !== undefined) window.clearTimeout(timer);
@@ -272,11 +256,6 @@ export function reportProviderUpdateToast(update: ProviderUpdate, onRetry: () =>
 
   dismissTimers.set(
     update.provider,
-    window.setTimeout(() => dismissProviderUpdateToast(update.provider), TOAST_DURATION),
+    window.setTimeout(() => hideProviderUpdateToast(update.provider), TOAST_DURATION),
   );
-}
-
-export function dismissProviderUpdateToast(provider: AgentProviderId): void {
-  closedOffers.delete(provider);
-  hideProviderUpdateToast(provider);
 }

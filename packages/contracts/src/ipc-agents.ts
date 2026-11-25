@@ -325,6 +325,8 @@ export interface CreateAgentInput {
   avatarHue: AvatarHue | null;
   avatarColor?: AvatarColor | null;
   initialMessage: string;
+  /** Work area path the user confirmed; the host checks it and runs startup before the first turn. */
+  workArea?: string;
   provider?: AgentProviderId;
   model?: AgentModelId;
   reasoningEffort?: AgentReasoningEffort;

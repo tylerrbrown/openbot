@@ -16,6 +16,10 @@ import {
 import { TEAM_API_ROUTES } from "@openbot/contracts/team-api-routes";
 import { AGENT_WELCOME_CAPABILITY } from "@openbot/contracts/team-protocol/agent-welcome-v1";
 import {
+  AGENT_WORK_AREA_CAPABILITY,
+  AGENT_WORK_AREA_ROUTES,
+} from "@openbot/contracts/team-protocol/agent-work-area-v1";
+import {
   BROWSER_SECRET_VAULT_CAPABILITY,
   BROWSER_SECRET_VAULT_ROUTES,
 } from "@openbot/contracts/team-protocol/browser-secret-vault-v1";
@@ -30,12 +34,14 @@ import {
 } from "@openbot/contracts/team-protocol/usage-read-failed-v1";
 import { V5_AGENT_MODEL } from "@openbot/contracts/team-protocol/v5-adapter";
 import { V6_AGENT_MODEL } from "@openbot/contracts/team-protocol/v6-adapter";
+import { TEAM_PROTOCOL_V10 } from "@openbot/contracts/team-protocol/v10";
 import { WORKFLOWS_CAPABILITY } from "@openbot/contracts/team-protocol/workflows-v1";
 import { sourceText } from "@openbot/i18n/source";
 import type { Effect } from "effect";
 import type { AgentDuplicationFailed } from "../../backend/agent/duplication-gate";
 import { ForbiddenAttentionAnswer, InactiveAttentionRequest } from "../../backend/agent/inactive-attention-request";
 import { runCauseEffect } from "../../backend/effect-boundary";
+import { listWorkAreas, workAreaSetupAvailable } from "../../backend/work-area-bootstrap";
 import { parseSidebarLayoutAction } from "../ipc/agent-inputs";
 import type { ModelVisibility } from "../model-visibility";
 import type { TeamApiAgents, TeamApiLibraryFolders, TeamApiOptions, TeamApiSidebarLayout } from "./dependencies";
@@ -210,9 +216,25 @@ export async function routeAgents(
   if (method === "GET" && url.pathname === TEAM_API_ROUTES.agents.conversationReads) {
     return json(200, agents.listConversationReads(member.id, markerExclusionsForCapabilities(capabilities)));
   }
+  if (method === "GET" && url.pathname === AGENT_WORK_AREA_ROUTES.list) {
+    if (member.role !== "owner") throw new HttpError(403, sourceText("error.team.ownerRequired"));
+    if (
+      context.protocol < TEAM_PROTOCOL_V10 ||
+      !capabilities.has(AGENT_WORK_AREA_CAPABILITY) ||
+      !workAreaSetupAvailable()
+    )
+      throw new HttpError(404, sourceText("error.team.workAreaUnsupported"));
+    return json(200, { areas: await listWorkAreas() });
+  }
   if (method === "POST" && url.pathname === TEAM_API_ROUTES.agents.all) {
     requireCompatibleDefault();
-    const input = agentCreate(await readJson(request));
+    const body = await readJson(request);
+    if (body.workArea !== undefined) {
+      if (member.role !== "owner") throw new HttpError(403, sourceText("error.team.ownerRequired"));
+      if (!capabilities.has(AGENT_WORK_AREA_CAPABILITY) || !workAreaSetupAvailable())
+        throw new HttpError(400, sourceText("error.team.workAreaUnsupported"));
+    }
+    const input = agentCreate(body);
     requireVisibleProvider(input);
     const welcome = capabilities.has(AGENT_WELCOME_CAPABILITY);
     return json(

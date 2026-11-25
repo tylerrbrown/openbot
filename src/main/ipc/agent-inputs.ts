@@ -246,13 +246,20 @@ export function parseCreateAgent(value: unknown): CreateAgentInput {
   if (avatarColor !== undefined && avatarColor !== null && !isAvatarColor(avatarColor)) {
     throw new Error("Invalid avatar color.");
   }
+  const workArea =
+    value.workArea === undefined ? undefined : requireString(value.workArea, "workArea", INPUT_LIMITS.identifier);
+  const initialMessage = value.initialMessage;
   const result: CreateAgentInput = {
     name: requireString(value.name, "name", INPUT_LIMITS.agentName),
     description: requireString(value.description, "description", INPUT_LIMITS.agentDescription),
     avatarSeed: value.avatarSeed,
     avatarHue,
     ...(avatarColor === undefined ? {} : { avatarColor }),
-    initialMessage: requireString(value.initialMessage, "initialMessage", INPUT_LIMITS.messageText),
+    initialMessage:
+      workArea !== undefined && isString(initialMessage) && initialMessage.length <= INPUT_LIMITS.messageText
+        ? initialMessage
+        : requireString(initialMessage, "initialMessage", INPUT_LIMITS.messageText),
+    ...(workArea === undefined ? {} : { workArea }),
   };
   if (value.provider !== undefined) {
     if (!isAgentProvider(value.provider)) throw new Error("Invalid agent provider.");

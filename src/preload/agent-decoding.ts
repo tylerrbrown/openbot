@@ -55,6 +55,11 @@ import { isDynamicRecord, isHttpsUrl, isNumber, isOneOf, isString } from "@openb
 
 export const decodeRoutine = guardedDecoder(isRoutine, "routine response");
 export const decodeAgentHostSettingsFromMain = guardedDecoder(isAgentHostSettings, "agent host settings response");
+
+export function decodeWorkAreasFromMain(value: unknown): { areas: string[] | null } {
+  const { areas } = decodeRecord(value, "Work areas response");
+  return { areas: areas === null ? null : guardedListDecoder(isString, "Work areas response")(areas) };
+}
 export const decodeRoutines = guardedListDecoder(isRoutine, "routine list response");
 export const decodeRoutineRun = guardedDecoder(isRoutineRun, "routine run response");
 export const decodeRoutineRuns = guardedListDecoder(isRoutineRun, "routine history response");

@@ -1,4 +1,5 @@
 import { CHANNEL_CHATS_CAPABILITY } from "@openbot/contracts/ipc";
+import { AGENT_WORK_AREA_CAPABILITY } from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import { MESSAGE_DELETE_CAPABILITY } from "@openbot/contracts/team-protocol/message-delete-v1";
 import { MESSAGE_PINS_CAPABILITY } from "@openbot/contracts/team-protocol/message-pins-v1";
 import type { WebRuntimeFactory } from "../features/web-client/web-client-context";
@@ -55,6 +56,7 @@ export function mockWebRuntimeFor(mock: MockOpenBotControls, events: WebRuntimeE
       return [
         "conversation-pagination",
         "agent-create-model",
+        AGENT_WORK_AREA_CAPABILITY,
         "agent-duplication",
         "sidebar-layout",
         CHANNEL_CHATS_CAPABILITY,
@@ -127,6 +129,7 @@ export function mockWebRuntimeFor(mock: MockOpenBotControls, events: WebRuntimeE
     models: () => agent.listModels(),
     status: () => agent.getStatus(),
     accountUsage: () => agent.getUsage(),
+    listWorkAreas: async () => ({ areas: (await agent.listWorkAreas()).areas ?? [] }),
     createAgent: (input) => agent.createAgent(input),
     duplicateAgent: (agentId) => agent.duplicateAgent(agentId),
     updateAgent: async (input) => {

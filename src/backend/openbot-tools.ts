@@ -455,6 +455,12 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
     shape: {},
   },
   {
+    name: "list_work_areas",
+    description:
+      "List Work areas this host offers for a new agent. Ask the user to choose before calling create_agent.",
+    shape: {},
+  },
+  {
     name: "list_models",
     description:
       "List the models each provider offers: id, name, reasoning efforts, and the default model that create_agent uses for a provider only. With no query, each provider lists its default, the models in use and its first models; omittedModels counts the rest. A provider with more than one account lists them: id, label and state, its own sign-in (id default) first. Read-only.",
@@ -475,7 +481,7 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   {
     name: "create_agent",
     description:
-      "Create a persistent local OpenBot agent when the user asks for a new teammate. Choose its profile from the user's request and supply its first task. The new agent gets your provider, model, effort and account. Set provider, model, or reasoningEffort only when the user asks for different ones; call list_models first. Use update_profile for an existing agent. After it exists, add skills with install_local_skill and routines with create_routine as needed. A new agent gets your own access and Computer Use limits.",
+      "Create a persistent local OpenBot agent when the user asks for a new teammate. Use the Work area the user confirmed from list_work_areas, choose its profile from the request, and supply its first task. The new agent gets your provider, model, effort and account. Set provider, model, or reasoningEffort only when the user asks for different ones; call list_models first. Use update_profile for an existing agent. After it exists, add skills with install_local_skill and routines with create_routine as needed. A new agent gets your own access and Computer Use limits.",
     shape: createAgentToolSchema.shape,
   },
   {

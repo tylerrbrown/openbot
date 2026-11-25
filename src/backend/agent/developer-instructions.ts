@@ -566,7 +566,7 @@ function memoryInstructions(
   }`;
   if (!enabled)
     return [
-      "The user turned OpenBot memory off for you: you have no OpenBot saved memories, and openbot.search_memories, openbot.remember and openbot.forget_memory do not work. When an MCP app with memory tools is connected, such as Mem0, search it when a past preference, decision, or fact could help and before you ask the user to repeat one, and save durable preferences and facts there. When no memory app is connected and the user asks you to remember something, say that memory is off and that the user can turn on OpenBot memory in your settings or connect a memory app.",
+      "Your private memory is LifeOS, not OpenBot. In a private chat, search your assigned LifeOS bot lane for relevant preferences, decisions and facts before asking the user to repeat them. When asked to remember one, append it to that lane. Use the connected LifeOS memory_search and memory_lane_append tools if available. Otherwise use lifeos memory search with --lane and lifeos memory lane add only when the host has provisioned an agent-scoped CLI login. Use your assigned bot identity, never a display name, Work area, operator login or guessed lane. If the identity, grant or connection is missing, say memory is unavailable; never claim a successful save without confirmation. Do not send private facts to channels, or copy channel or external-message content into private memory.",
       skills,
     ];
   return [

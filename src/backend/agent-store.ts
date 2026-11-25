@@ -389,7 +389,7 @@ export class AgentStore {
             : folder,
         );
       record.computerUse = source.computerUse;
-      if (source.memory === false) record.memory = false;
+      if (source.memory !== false) delete record.memory;
       if (source.busyMessageMode) record.busyMessageMode = source.busyMessageMode;
       if (source.taskLimit !== undefined) record.taskLimit = source.taskLimit;
       if (source.backupModels) record.backupModels = structuredClone(source.backupModels);
@@ -1581,6 +1581,7 @@ export class AgentStore {
       reasoningEffort: DEFAULT_REASONING_EFFORT,
       access: DEFAULT_AGENT_ACCESS,
       computerUse: true,
+      memory: false,
       threadId: null,
       workspacePath: join(this.#agentsRoot, id),
       preview: NEW_AGENT_PREVIEW,

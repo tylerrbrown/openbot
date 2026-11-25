@@ -62,6 +62,7 @@ import { AGENT_THREAD_READS_CAPABILITY } from "@openbot/contracts/team-protocol/
 import { AGENT_THREAD_REPLIES_CAPABILITY } from "@openbot/contracts/team-protocol/agent-thread-replies-v1";
 import { AGENT_THREAD_REQUESTS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-thread-requests-v1";
 import { AGENT_THREADS_CAPABILITY } from "@openbot/contracts/team-protocol/agent-threads-v1";
+import { AGENT_WORK_AREA_CAPABILITY } from "@openbot/contracts/team-protocol/agent-work-area-v1";
 import { ANTIGRAVITY_CODE_SIGN_IN_CAPABILITY } from "@openbot/contracts/team-protocol/antigravity-code-sign-in-v1";
 import { BACKGROUND_PROCESSES_CAPABILITY } from "@openbot/contracts/team-protocol/background-processes-v1";
 import { BROWSER_EGRESS_CAPABILITY } from "@openbot/contracts/team-protocol/browser-egress-v1";
@@ -342,6 +343,7 @@ import { perfCount } from "../backend/perf-probe-hooks";
 import { canConfineProcesses } from "../backend/process-confinement";
 import { StoredStateFailure } from "../backend/stored-state-effects";
 import type { TeamChatStore } from "../backend/team-chat-store";
+import { workAreaSetupAvailable } from "../backend/work-area-bootstrap";
 import { agentAccessLevel } from "./agent-access-store";
 import { LifecycleGate } from "./lifecycle-gate";
 import { listenLoopback } from "./listen-loopback";
@@ -2722,6 +2724,7 @@ export class TeamApiServer {
     return teamCapabilitiesVisibleToProtocol(TEAM_CURRENT_CAPABILITIES, protocol ?? TEAM_PROTOCOL_V1).filter(
       (capability) => {
         if (!expanded && !legacyTeamCapabilities([capability]).length) return false;
+        if (capability === AGENT_WORK_AREA_CAPABILITY) return workAreaSetupAvailable();
         if (
           capability === "channel-chats-v1" ||
           capability === CHANNEL_DELETE_CAPABILITY ||

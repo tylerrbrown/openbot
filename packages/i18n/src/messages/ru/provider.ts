@@ -140,6 +140,8 @@ export const messages = {
     "Эти модели не работают с режимом «Рабочее пространство» в Windows и Linux. Чтобы использовать их, измените «Доступ» в настройках агента.",
   "provider.picker.olderModels": "Старые модели",
   "provider.picker.olderModelsList": "Старые модели {name}",
+  "provider.picker.useServerDefault": "Использовать настройку сервера",
+  "provider.settings.defaultModel": "Модель по умолчанию",
   "provider.picker.noModels":
     "Здесь нет моделей {name}. Если они выключены, администратор может включить их в разделе «Настройки сервера» > «Провайдеры» > «{name}» > «Модели».",
   "provider.picker.endpointModelsInCustom": "{name} запускает ваши эндпоинты. Их модели — на вкладке «Свой».",

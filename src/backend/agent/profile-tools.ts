@@ -54,6 +54,13 @@ export const createAgentToolSchema = z
     title: profileFields.title.optional(),
     avatarSeed: profileFields.avatarSeed.optional(),
     avatarHue: profileFields.avatarHue.optional(),
+    workArea: z
+      .string()
+      .trim()
+      .min(1)
+      .max(INPUT_LIMITS.identifier)
+      .describe("Exact Work area the user chose from list_work_areas. Omit only if the host does not use Work areas.")
+      .optional(),
     initialMessage: z.string().trim().min(1).max(INPUT_LIMITS.messageText),
     provider: z
       .enum(AGENT_PROVIDERS)
@@ -203,6 +210,7 @@ export const readAgentToolSchema = z
 
 export const PROFILE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_models",
+  "list_work_areas",
   "read_agent",
   "create_agent",
   "update_profile",

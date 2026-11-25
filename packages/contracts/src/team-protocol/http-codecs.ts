@@ -1,5 +1,6 @@
 import { TEAM_API_ROUTES } from "../team-api-routes";
 import { decodeAgentCreateOperation } from "./agent-create-operation-v1";
+import { decodeAgentCreateWorkArea } from "./agent-work-area-v1";
 import { isAgentCreateRoute } from "./current";
 import {
   decodeTeamProtocolV1CurrentHttpRequest,
@@ -158,6 +159,16 @@ const V9_CODEC: TeamHttpCodec = {
 
 const V10_CODEC: TeamHttpCodec = {
   ...V9_CODEC,
+  encodeRequest: (method, path, value, options) => {
+    const encoded = V9_CODEC.encodeRequest(method, path, value, options);
+    return isAgentCreateRoute(method, path)
+      ? JSON.stringify({ ...JSON.parse(encoded), ...decodeAgentCreateWorkArea(value) })
+      : encoded;
+  },
+  decodeRequest: (method, path, value, options) => {
+    const decoded = V9_CODEC.decodeRequest(method, path, value, options);
+    return isAgentCreateRoute(method, path) ? { ...decoded, ...decodeAgentCreateWorkArea(value) } : decoded;
+  },
   encodeResponse: (method, path, status, value, options) =>
     isCompatibilityRead(method, path, status)
       ? JSON.stringify(decodeTeamProtocolSupportV10(value))

@@ -74,7 +74,10 @@ const AgentActions = createSimpleContext({
       const local = activeServer()?.kind !== "remote";
       const createModelSupported = local || activeServerSupportsCapability(TEAM_AGENT_CREATE_MODEL_CAPABILITY);
       const welcomeSupported = local || activeServerSupportsCapability(AGENT_WELCOME_CAPABILITY);
-      return agentsPort().agent.createAgent(newAgentInput(draft, createModelSupported, welcomeSupported));
+      return agentsPort().agent.createAgent(
+        newAgentInput(draft, createModelSupported, welcomeSupported),
+        activeServerId(),
+      );
     }
 
     function addNewAgent(stored: ClientAgentSummary): AgentProfile {

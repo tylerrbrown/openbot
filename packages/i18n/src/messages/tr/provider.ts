@@ -123,6 +123,8 @@ export const messages = {
     'Bu modeller Windows ve Linux\'ta "Yalnızca çalışma alanı" ile çalışmaz. Kullanmak için ajan ayarlarında "İzinler"i değiştirin.',
   "provider.picker.olderModels": "Eski modeller",
   "provider.picker.olderModelsList": "Eski {name} modelleri",
+  "provider.picker.useServerDefault": "Sunucunun varsayılanını kullan",
+  "provider.settings.defaultModel": "Varsayılan model",
   "provider.picker.noModels":
     "Burada {name} modeli görünmüyor. Kapalıysalar, bir yönetici bunları Sunucu ayarları > Sağlayıcılar > {name} > Modeller bölümünden açabilir.",
   "provider.picker.endpointModelsInCustom": "{name} özel uç noktalarınızı çalıştırıyor. Modelleri Özel sekmesinde.",

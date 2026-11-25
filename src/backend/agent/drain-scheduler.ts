@@ -95,6 +95,7 @@ interface SessionRetry {
 }
 
 export interface DrainHooks {
+  piNamingMemberId(): string | undefined;
   emitError(code: string, error: unknown, agentId?: string): void;
   isStopping(): boolean;
   isDeleting(agentId: string): boolean;
@@ -1049,6 +1050,17 @@ export class DrainScheduler {
       }
       this.#conversation.emitConversation(snapshot);
 
+      const namingMember = client.provider === "pi" ? this.#mailbox.senderMember(delivery.id)?.id : undefined;
+      const namingTopic =
+        namingMember &&
+        namingMember === this.#hooks.piNamingMemberId() &&
+        delivery.sender.kind === "user" &&
+        !channelDelivery &&
+        !messagingDelivery &&
+        planNote === undefined &&
+        !this.#mailbox.isWelcomeDelivery(delivery.id)
+          ? delivery.text
+          : undefined;
       const startTurn = (providerThreadId: string) =>
         Effect.gen({ self: this }, function* () {
           yield* drainStep(requireServedModel(this.#providers.configRevision(client)));
@@ -1065,6 +1077,7 @@ export class DrainScheduler {
                   this.#store.list().find((current) => current.id === agent.id) ?? agent,
                 ),
                 clientUserMessageId: delivery.id,
+                ...(namingTopic ? { openbotNamingTopic: namingTopic } : {}),
                 ...((context.resumeAfterUsageLimit || planNote !== undefined) && client.provider !== "codex"
                   ? { clientTurnId: randomUUID() }
                   : {}),

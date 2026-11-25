@@ -29,7 +29,10 @@ import { decodeTeamProtocolV8CurrentEvent } from "@openbot/contracts/team-protoc
 import { TEAM_PROTOCOL_V9 } from "@openbot/contracts/team-protocol/v9";
 import { encodeTeamProtocolV9WebRtcHttpRequest } from "@openbot/contracts/team-protocol/v9-webrtc-adapter";
 import { TEAM_PROTOCOL_V10 } from "@openbot/contracts/team-protocol/v10";
-import { decodeTeamProtocolV10WebRtcHttpResponse } from "@openbot/contracts/team-protocol/v10-webrtc-adapter";
+import {
+  decodeTeamProtocolV10WebRtcHttpResponse,
+  encodeTeamProtocolV10WebRtcHttpRequest,
+} from "@openbot/contracts/team-protocol/v10-webrtc-adapter";
 import { sourceText } from "@openbot/i18n/source";
 import { remoteWorkspaceReadTimeout, startRemoteRequestDeadline } from "@openbot/team-client/remote-recovery";
 import { type RemoteRequestProfile, startRemoteRequest } from "@openbot/team-client/sync-profile";
@@ -504,6 +507,10 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
         const binary = binaryBody(init.body);
         const sideRoute = teamSideRouteCodec(path);
         const knownProtocol = this.#hostProtocols.get(hostId);
+        const encodeRequest =
+          (knownProtocol ?? 0) >= TEAM_PROTOCOL_V10
+            ? encodeTeamProtocolV10WebRtcHttpRequest
+            : encodeTeamProtocolV9WebRtcHttpRequest;
         const capabilityProtocol =
           path !== "/v1/compatibility" || (knownProtocol !== undefined && knownProtocol >= TEAM_PROTOCOL_V10)
             ? knownProtocol
@@ -535,7 +542,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
                       channelBrowser: true,
                       providerManyAccounts: true,
                     })
-                  : encodeTeamProtocolV9WebRtcHttpRequest(method, path, init.body, {
+                  : encodeRequest(method, path, init.body, {
                       ...(init.preserveSemanticTags === undefined
                         ? {}
                         : { preserveSemanticTags: init.preserveSemanticTags }),

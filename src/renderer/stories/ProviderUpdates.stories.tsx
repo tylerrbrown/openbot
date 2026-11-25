@@ -8,7 +8,7 @@ import { type ProviderUpdate, providerUpdatesToAnnounce } from "@openbot/ui/feat
 import { createEffect, createSignal, createUniqueId, onCleanup, onSettled, Show, untrack } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
-  dismissProviderUpdateToast,
+  hideProviderUpdateToast,
   reportProviderUpdateToast,
   showProviderUpdateToast,
 } from "../src/features/provider-updates/provider-update-toast";
@@ -177,7 +177,7 @@ function ProviderUpdateFlow(props: { controls?: boolean; failure?: string; compa
     clearTimers();
     running.delete(id);
     setRuntime(id, { phase: "ready", progress: 100, message: null, version: INSTALLED[id] });
-    dismissProviderUpdateToast(id);
+    hideProviderUpdateToast(id);
   }
 
   function replayFlow(): void {
@@ -219,7 +219,7 @@ function ProviderUpdateFlow(props: { controls?: boolean; failure?: string; compa
 
   onCleanup(() => {
     clearTimers();
-    for (const id of PROVIDERS) dismissProviderUpdateToast(id);
+    for (const id of PROVIDERS) hideProviderUpdateToast(id);
     toast.dismiss("provider-update-companion-model");
     toast.dismiss("provider-update-companion-saved");
   });

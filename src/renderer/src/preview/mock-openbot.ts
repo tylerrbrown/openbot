@@ -1310,6 +1310,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
     queues.set(agent.id, emptyQueue(agent.id));
     emitAgentEvent({ type: "agents-changed", agents });
     try {
+      if (input.workArea && !input.initialMessage) return clone(agent);
       await api.agent.sendMessage({ agentId: agent.id, text: input.initialMessage, attachmentDraftIds: [] });
       if (welcome)
         updateSnapshot(agent.id, (snapshot) => {
@@ -2657,6 +2658,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
         if (!isAgentSummary(updated)) throw new Error("Mock profile agent has an unknown provider.");
         return { agent: { ...updated, avatarUrl: null }, layout };
       },
+      listWorkAreas: async () => ({ areas: ["example/engineering", "example/operations"] }),
       createAgent: (input) => createMockAgent(input, true),
       duplicateAgent: async (agentId) => {
         const source = agents.find((agent) => agent.id === agentId);

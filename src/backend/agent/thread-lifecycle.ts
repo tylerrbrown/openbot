@@ -667,7 +667,8 @@ export class ThreadLifecycle {
         yield* this.#workspaceSkills(agent, client),
       ),
       serviceName: "openbot",
-      dynamicTools: visibleDynamicTools(client.provider),
+      ...(client.provider === "claude" ? { privateMemory: agentMemoryEnabled(agent) } : {}),
+      dynamicTools: visibleDynamicTools(client.provider, agentMemoryEnabled(agent)),
     };
     return { agent, mcpServers, toolRuntimes, own, environment, proxy, instructionsFile, params };
   });
@@ -937,7 +938,7 @@ export class ThreadLifecycle {
     return createHash("sha256")
       .update(
         JSON.stringify([
-          visibleDynamicTools(agent.provider),
+          visibleDynamicTools(agent.provider, agentMemoryEnabled(agent)),
           mcpFingerprintValues(configs),
           Object.keys(disabled).sort(),
           approvals,
@@ -1320,7 +1321,10 @@ export class ThreadLifecycle {
         instructionsFile,
         yield* this.#workspaceSkills(agent, client),
       ),
-      ...(client.provider === "codex" ? {} : { dynamicTools: visibleDynamicTools(client.provider) }),
+      ...(client.provider === "claude" ? { privateMemory: agentMemoryEnabled(agent) } : {}),
+      ...(client.provider === "codex"
+        ? {}
+        : { dynamicTools: visibleDynamicTools(client.provider, agentMemoryEnabled(agent)) }),
       ...(yield* this.codexConfigEffect(
         agent,
         client,

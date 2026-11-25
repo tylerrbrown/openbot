@@ -615,15 +615,16 @@ routes, a message and a routine run of a hidden agent, and the one-time step.
 
 ## New agent welcome
 
-A new agent starts with a setup message from `agentWelcomeMessage`
+On the custom LifeOS host, the user confirms a current Work area before creating a new agent. The host checks the area, records it in the agent’s Instructions, and writes a startup receipt to the chat. There is no welcome model turn. A real first task can run after the receipt. The receipt distinguishes a resolved Pi charter from a charter applied to a session. The host does not recall memory without an agent-scoped login and a verified private lane binding.
+
+On hosts without Work area setup, a new agent starts with a setup message from `agentWelcomeMessage`
 (`packages/contracts/src/agent-welcome.ts`), not with a message from the user. The chat does not show
 it; until the welcome turn starts, the queue snapshot reports `welcome: true` and the chat shows the
-agent's working line. The agent writes in the app language, or in the language of its profile. Its welcome is the text
-of one question (`AskUserQuestion` on Claude, `openbot.ask_user` on other providers) with three first
-tasks and free text. The answered question card keeps that text, so the welcome stays in the chat
-after the answer; text written before a question goes back into the turn's steps. When the iPhone
-onboarding has a first task, the setup message asks only for a welcome, and the task follows as the
-user's own message. A local create always marks the message; a remote host does
+agent's working line. The agent writes in the app language, or in the language of its profile. The setup prompt tells the agent to follow its workspace startup instructions and reuse its assigned Work area.
+If no area is assigned, the agent lists the current areas with `work area list` and asks the user to select one
+with `AskUserQuestion` or `openbot.ask_user`. The prompt tells it to record the selected path in the agent’s
+workspace Instructions so later chats use the same area. A skipped choice or an unavailable list leaves the
+area unset. There is no starter-task menu. A first task from iPhone onboarding follows as the user’s own message. A local create always marks the message; a remote host does
 it when the client sends `agent-welcome-v1` (see [Team API](team-api.md)). Agents that other agents
 create keep a visible first message.
 

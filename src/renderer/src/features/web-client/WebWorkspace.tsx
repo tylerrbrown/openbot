@@ -3798,6 +3798,7 @@ function WebWorkspaceFrame(props: WebWorkspaceProps) {
                 <WebAgentSettings
                   runtime={workspace.runtime}
                   capabilities={workspace.state.capabilities}
+                  hostId={workspace.state.host?.hostId}
                   first={firstAgent()}
                   preference={serverSetupChoice()}
                   customProviders={providerSettings()?.customProviders}

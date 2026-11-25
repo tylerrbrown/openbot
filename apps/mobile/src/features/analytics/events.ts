@@ -75,7 +75,7 @@ export const MOBILE_EVENTS = {
     entry_point: ["drawer", "onboarding"],
   },
   onboarding_step: {
-    step: ["hello", "server", "agent", "look", "name", "role", "task", "ready"],
+    step: ["hello", "server", "workArea", "agent", "look", "name", "role", "task", "ready"],
     action: ["viewed", "next", "back", "skipped"],
   },
   onboarding_completed: { skipped: isBoolean },

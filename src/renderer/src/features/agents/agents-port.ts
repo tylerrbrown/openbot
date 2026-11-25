@@ -22,6 +22,7 @@ export interface AgentsPort {
     | "listAgents"
     | "listConversationReads"
     | "listModels"
+    | "listWorkAreas"
     | "onEvent"
     | "getRuntimeSnapshot"
     | "listPendingPrompts"

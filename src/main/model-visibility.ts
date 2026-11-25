@@ -387,6 +387,10 @@ export class ModelVisibility {
     return this.#hidden.get(provider);
   }
 
+  isShown(provider: AgentProviderRef, model: string): boolean {
+    return !this.#hidden.get(provider)?.has(model);
+  }
+
   hiddenModels(): { provider: string; hidden: string[] }[] {
     return [...this.#hidden].map(([provider, ids]) => ({ provider, hidden: [...ids] }));
   }

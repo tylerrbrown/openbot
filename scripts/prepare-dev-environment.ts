@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { developmentInstanceIdForWorktree } from "../src/main/development-profile";
 import { type DevelopmentStateOutcome, ensureDevelopmentState } from "./development-secrets";
 
 const scriptsRoot = dirname(fileURLToPath(import.meta.url));
@@ -142,12 +141,6 @@ export function prepareDevelopmentWorktree(input: DevelopmentPreparationInput = 
   const executable = input.executable ?? process.execPath;
   const run = input.run ?? execDevelopmentCommand;
   const options = { cwd: projectRoot, stdio: "inherit" as const };
-  const instanceId = developmentInstanceIdForWorktree(projectRoot);
-
-  run(executable, ["run", "dev:seed", "--if-missing"], {
-    ...options,
-    env: { ...process.env, OPENBOT_DEV_INSTANCE_ID: instanceId },
-  });
   run(executable, ["run", "marketplace:seed:local"], options);
   return stateOutcome;
 }

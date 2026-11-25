@@ -15,12 +15,28 @@ import type {
   ProviderRuntimeStatus,
 } from "@openbot/contracts/ipc";
 import type { AppTextKey, AppTranslate } from "@openbot/i18n";
-import { Button, Field, Input, Textarea } from "@openbot/ui";
-import { createSignal, For, onSettled, Show } from "solid-js";
+import {
+  Button,
+  Field,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SlidingTabs,
+  SwitchField,
+  Textarea,
+} from "@openbot/ui";
+import { createSignal, createUniqueId, For, onSettled, Show } from "solid-js";
 import {
   AVATAR_COLOR_CHOICES,
+  AVATAR_STYLES,
+  avatarDefaultSeed,
   avatarHeadColor,
   avatarSeedForFace,
+  avatarStyleForSeed,
+  bloubAvatarProfile,
   isAvatarColorChoice,
   type SupportedAvatarSilhouetteId,
 } from "../../bloub-avatar";
@@ -34,6 +50,7 @@ import { InstructionsLimit, instructionsTooLong } from "./InstructionsLimit";
 export interface FirstAgentDraft {
   name: string;
   purpose: string;
+  workArea?: string;
   avatarSeed: string;
   avatarHue: AvatarHue | null;
   avatarColor?: AvatarColor | null | undefined;
@@ -56,11 +73,14 @@ export interface FirstAgentSuggestion {
 
 export interface FirstAgentSetupProps {
   value: FirstAgentDraft;
-  suggestions: FirstAgentSuggestion[];
+  workAreas?: { scope: string; load: (scope: string) => Promise<{ areas: string[] | null }> } | undefined;
+  suggestions?: FirstAgentSuggestion[];
   mode?: "first" | "additional";
   submitting?: boolean;
   error?: string | null;
   modelOptions?: ClientAgentModelOption[] | undefined;
+  useServerDefault?: boolean;
+  onUseServerDefaultChange?: ((enabled: boolean) => void) | undefined;
   agentStatus?: AgentStatus | undefined;
   accountChoice?: boolean | undefined;
   accountUsage?: AccountUsage | null | undefined;
@@ -94,6 +114,8 @@ const FIRST_AGENT_FACES: ReadonlyArray<{ shape: SupportedAvatarSilhouetteId; exp
 
 export const FIRST_AGENT_AVATAR_SEEDS = FIRST_AGENT_FACES.map((face) => avatarSeedForFace("first-bot", face));
 
+const FLAT_AVATAR_SEEDS = FIRST_AGENT_FACES.map((face) => avatarSeedForFace("first-bot", face, "flat"));
+
 const SUGGESTION_MOMENTUM_FRICTION = 0.88;
 const SUGGESTION_MOMENTUM_MINIMUM = 0.01;
 const SUGGESTION_MOMENTUM_MAXIMUM = 1.75;
@@ -102,11 +124,11 @@ const MOTION_FRAME_DURATION = 1000 / 60;
 const FACE_CHOICE_EYE_SCALE = 1.25;
 
 export function createFirstAgentDraft(random: () => number = Math.random): FirstAgentDraft {
-  const index = Math.min(FIRST_AGENT_AVATAR_SEEDS.length - 1, Math.floor(random() * FIRST_AGENT_AVATAR_SEEDS.length));
+  const index = Math.min(FLAT_AVATAR_SEEDS.length - 1, Math.floor(random() * FLAT_AVATAR_SEEDS.length));
   return {
     name: currentText().t("agent.setup.nameFallback"),
     purpose: "",
-    avatarSeed: FIRST_AGENT_AVATAR_SEEDS[index] ?? "first-bot",
+    avatarSeed: FLAT_AVATAR_SEEDS[index] ?? avatarDefaultSeed("first-bot", "flat"),
     avatarHue: null,
     suggestionId: null,
     provider: "codex",
@@ -182,6 +204,120 @@ function matchesSuggestion(draft: FirstAgentDraft, suggestion: FirstAgentSuggest
 }
 
 export function FirstAgentSetup(props: FirstAgentSetupProps) {
+  return (
+    <Show when={props.workAreas?.scope} keyed fallback={<AgentProfileSetup {...props} />}>
+      {(scope) => {
+        const source = props.workAreas;
+        return source && <WorkAreaSetup setup={props} load={() => source.load(scope)} />;
+      }}
+    </Show>
+  );
+}
+
+function WorkAreaSetup(props: { setup: FirstAgentSetupProps; load: () => Promise<{ areas: string[] | null }> }) {
+  const { t } = useText();
+  const titleId = createUniqueId();
+  const [areas, setAreas] = createSignal<string[] | null>();
+  const [selected, setSelected] = createSignal<string | null>(null);
+  const [confirmed, setConfirmed] = createSignal<string | null>();
+  let disposed = false;
+
+  async function load() {
+    setAreas(undefined);
+    setSelected(null);
+    try {
+      const { areas } = await props.load();
+      if (disposed) return;
+      if (areas === null) setConfirmed(null);
+      else setAreas(areas);
+    } catch {
+      if (!disposed) setAreas(null);
+    }
+  }
+
+  onSettled(() => {
+    void load();
+    return () => {
+      disposed = true;
+    };
+  });
+
+  return (
+    <Show
+      when={confirmed() === undefined}
+      fallback={
+        <AgentProfileSetup
+          {...props.setup}
+          onChangeWorkArea={areas() !== undefined ? () => setConfirmed(undefined) : undefined}
+          onSubmit={(draft) => {
+            const workArea = confirmed();
+            return props.setup.onSubmit(workArea ? { ...draft, workArea } : draft);
+          }}
+        />
+      }
+    >
+      <main class="conversation-panel first-agent-setup-panel" aria-labelledby={titleId}>
+        <header class="window-drag first-agent-setup-header">
+          <span>{t(props.setup.mode === "additional" ? "agent.setup.titleAdditional" : "agent.setup.titleFirst")}</span>
+          <Show when={props.setup.onCancel}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              class="first-agent-cancel no-drag"
+              onClick={props.setup.onCancel}
+            >
+              {t("common.cancel")}
+            </Button>
+          </Show>
+        </header>
+        <div class="first-agent-setup-content">
+          <div class="first-agent-editor first-agent-work-area">
+            <h1 id={titleId}>{t("agent.setup.workArea.title")}</h1>
+            <Show when={areas() === undefined}>
+              <p role="status">{t("common.loading")}</p>
+            </Show>
+            <Show when={areas() === null}>
+              <p role="alert">{t("agent.setup.workArea.failed")}</p>
+              <Button type="button" variant="outline" onClick={() => void load()}>
+                {t("common.retry")}
+              </Button>
+            </Show>
+            <Show when={areas()?.length === 0}>
+              <p role="status">{t("agent.setup.workArea.empty")}</p>
+              <Button type="button" variant="outline" onClick={() => void load()}>
+                {t("common.retry")}
+              </Button>
+            </Show>
+            <Show when={areas()?.length ? areas() : undefined}>
+              {(options) => (
+                <>
+                  <Select<string>
+                    options={options()}
+                    value={selected()}
+                    onChange={setSelected}
+                    placeholder={t("agent.setup.workArea.title")}
+                    itemComponent={(item) => <SelectItem item={item.item}>{item.item.rawValue}</SelectItem>}
+                  >
+                    <SelectTrigger aria-labelledby={titleId}>
+                      <SelectValue<string>>{(state) => state.selectedOption()}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent />
+                  </Select>
+                  <Button type="button" disabled={!selected()} onClick={() => setConfirmed(selected())}>
+                    {t("agent.setup.workArea.confirm")}
+                  </Button>
+                </>
+              )}
+            </Show>
+          </div>
+        </div>
+      </main>
+    </Show>
+  );
+}
+
+function AgentProfileSetup(props: FirstAgentSetupProps & { onChangeWorkArea?: (() => void) | undefined }) {
   const { t, sourceText } = useText();
   let suggestionList: HTMLUListElement | undefined;
   let activeSuggestionPointer: number | null = null;
@@ -199,6 +335,15 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
   const canSubmit = () =>
     Boolean(props.value.name.trim()) && !instructionsTooLong(props.value.purpose) && !props.submitting;
   const displayName = () => props.value.name.trim() || t("agent.setup.nameFallback");
+  const avatarStyle = () => avatarStyleForSeed(props.value.avatarSeed);
+  const faceSeeds = () => (avatarStyle() === "flat" ? FLAT_AVATAR_SEEDS : FIRST_AGENT_AVATAR_SEEDS);
+
+  function selectStyle(value: string): void {
+    const style = AVATAR_STYLES.find((option) => option === value);
+    if (!style || style === avatarStyle() || props.submitting) return;
+    const face = bloubAvatarProfile(props.value.avatarSeed, props.value.avatarHue);
+    updateDraft({ avatarSeed: avatarSeedForFace("first-bot", face, style) });
+  }
 
   function updateSuggestionFades(): void {
     if (!suggestionList) return;
@@ -327,7 +472,7 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
   function updateDraft(updates: Partial<FirstAgentDraft>): void {
     if (props.submitting) return;
     const next = { ...props.value, ...updates };
-    const selected = props.suggestions.find((suggestion) => suggestion.id === next.suggestionId);
+    const selected = props.suggestions?.find((suggestion) => suggestion.id === next.suggestionId);
     props.onChange({
       ...next,
       suggestionId: selected && matchesSuggestion(next, selected, t) ? selected.id : null,
@@ -412,6 +557,17 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
           <h2 id="first-agent-setup-title" class="sr-only">
             {props.mode === "additional" ? t("agent.setup.titleAdditional") : t("agent.setup.titleFirst")}
           </h2>
+          <Show when={props.onChangeWorkArea}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={props.submitting}
+              onClick={props.onChangeWorkArea}
+            >
+              {t("agent.setup.workArea.change")}
+            </Button>
+          </Show>
 
           <div
             class="first-agent-live-avatar"
@@ -468,8 +624,14 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
 
           <fieldset class="first-agent-avatar-fieldset first-agent-face-fieldset" disabled={props.submitting}>
             <legend class="sr-only">{t("agent.setup.face")}</legend>
+            <SlidingTabs.Root value={avatarStyle()} onChange={selectStyle}>
+              <SlidingTabs.List class="avatar-style-tabs" aria-label={t("agentSettings.avatar.style")}>
+                <SlidingTabs.Trigger value="plush">{t("agentSettings.avatar.stylePlush")}</SlidingTabs.Trigger>
+                <SlidingTabs.Trigger value="flat">{t("agentSettings.avatar.styleFlat")}</SlidingTabs.Trigger>
+              </SlidingTabs.List>
+            </SlidingTabs.Root>
             <div class="first-agent-face-options">
-              <For each={FIRST_AGENT_AVATAR_SEEDS}>
+              <For each={faceSeeds()}>
                 {(seed, index) => (
                   <Button
                     variant="ghost"
@@ -516,7 +678,17 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
               />
               <InstructionsLimit text={props.value.purpose} />
             </Field>
-            <Show when={props.modelOptions}>
+            <Show when={props.onUseServerDefaultChange}>
+              {(change) => (
+                <SwitchField
+                  label={t("provider.picker.useServerDefault")}
+                  checked={props.useServerDefault === true}
+                  disabled={Boolean(props.submitting || (!props.modelOptions?.length && props.useServerDefault))}
+                  onChange={change()}
+                />
+              )}
+            </Show>
+            <Show when={!props.useServerDefault && props.modelOptions}>
               {(options) => (
                 <Show when={props.agentStatus}>
                   {(status) => (
@@ -572,56 +744,58 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
           </div>
         </form>
 
-        <section class="first-agent-suggestions" aria-labelledby="first-agent-suggestions-title">
-          <h2 id="first-agent-suggestions-title">{t("agent.setup.suggestions")}</h2>
-          <div
-            class={`first-agent-suggestion-viewport${canScrollSuggestionsBack() ? " can-scroll-back" : ""}${canScrollSuggestionsForward() ? " can-scroll-forward" : ""}${draggingSuggestions() ? " is-dragging" : ""}`}
-          >
-            <ul
-              ref={suggestionList}
-              class="first-agent-suggestion-list"
-              onScroll={updateSuggestionFades}
-              onPointerDown={startSuggestionDrag}
-              onPointerMove={moveSuggestionDrag}
-              onPointerUp={finishSuggestionDrag}
-              onPointerCancel={finishSuggestionDrag}
+        <Show when={props.suggestions?.length}>
+          <section class="first-agent-suggestions" aria-labelledby="first-agent-suggestions-title">
+            <h2 id="first-agent-suggestions-title">{t("agent.setup.suggestions")}</h2>
+            <div
+              class={`first-agent-suggestion-viewport${canScrollSuggestionsBack() ? " can-scroll-back" : ""}${canScrollSuggestionsForward() ? " can-scroll-forward" : ""}${draggingSuggestions() ? " is-dragging" : ""}`}
             >
-              <For each={props.suggestions}>
-                {(suggestion) => (
-                  <li class="first-agent-suggestion-item">
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      class="first-agent-suggestion-card"
-                      data-animation-offset={suggestion.animationOffset}
-                      aria-label={t("agent.setup.suggestion.label", {
-                        name: t(suggestion.nameKey),
-                        description: t(suggestion.descriptionKey),
-                      })}
-                      aria-pressed={props.value.suggestionId === suggestion.id ? "true" : "false"}
-                      data-cuelume-tap="select"
-                      disabled={props.submitting}
-                      onClick={() => {
-                        if (!suppressSuggestionClick) selectSuggestion(suggestion);
-                      }}
-                    >
-                      <AgentAvatar
-                        seed={suggestion.avatarSeed}
-                        hue={suggestion.avatarHue}
-                        motion="always"
-                        animationOffset={suggestion.animationOffset}
-                      />
-                      <span>
-                        <strong>{t(suggestion.nameKey)}</strong>
-                        <small>{t(suggestion.descriptionKey)}</small>
-                      </span>
-                    </Button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </div>
-        </section>
+              <ul
+                ref={suggestionList}
+                class="first-agent-suggestion-list"
+                onScroll={updateSuggestionFades}
+                onPointerDown={startSuggestionDrag}
+                onPointerMove={moveSuggestionDrag}
+                onPointerUp={finishSuggestionDrag}
+                onPointerCancel={finishSuggestionDrag}
+              >
+                <For each={props.suggestions}>
+                  {(suggestion) => (
+                    <li class="first-agent-suggestion-item">
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        class="first-agent-suggestion-card"
+                        data-animation-offset={suggestion.animationOffset}
+                        aria-label={t("agent.setup.suggestion.label", {
+                          name: t(suggestion.nameKey),
+                          description: t(suggestion.descriptionKey),
+                        })}
+                        aria-pressed={props.value.suggestionId === suggestion.id ? "true" : "false"}
+                        data-cuelume-tap="select"
+                        disabled={props.submitting}
+                        onClick={() => {
+                          if (!suppressSuggestionClick) selectSuggestion(suggestion);
+                        }}
+                      >
+                        <AgentAvatar
+                          seed={suggestion.avatarSeed}
+                          hue={suggestion.avatarHue}
+                          motion="always"
+                          animationOffset={suggestion.animationOffset}
+                        />
+                        <span>
+                          <strong>{t(suggestion.nameKey)}</strong>
+                          <small>{t(suggestion.descriptionKey)}</small>
+                        </span>
+                      </Button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </div>
+          </section>
+        </Show>
       </div>
     </main>
   );
