@@ -47,7 +47,7 @@ function Test-HttpStatus([string]$Url) {
     }
 }
 
-function Wait-OpenBotHealthy($Plan, [int]$TimeoutSeconds) {
+function Wait-OpenBotHealthy($Plan, [int]$TimeoutSeconds, [string]$Worktree) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $last = 'not checked'
     do {
@@ -55,8 +55,15 @@ function Wait-OpenBotHealthy($Plan, [int]$TimeoutSeconds) {
         $signal = Test-TcpOpen '127.0.0.1' ([int]$Plan.ports.signal)
         $health = Test-HttpStatus ("http://127.0.0.1:{0}/health/live" -f $Plan.ports.health)
         $renderer = Test-HttpStatus ("http://[::1]:{0}/" -f $Plan.ports.renderer)
-        $last = "api=$api signal=$signal health=$health renderer=$renderer"
-        if ($api -eq 200 -and $signal -and $health -eq 200 -and $renderer -eq 200) {
+        $electron = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith("$Worktree\", [StringComparison]::OrdinalIgnoreCase) -and
+                $_.CommandLine -match 'out-dev-app' -and $_.CommandLine.Contains([string]$Plan.instanceId) -and
+                $_.CommandLine -notmatch '--type='
+        })
+        $app = $electron.Count -eq 1 -and @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($electron[0].ProcessId)" |
+            Where-Object { $_.CommandLine -match '--type=renderer' }).Count -gt 0
+        $last = "api=$api signal=$signal health=$health renderer=$renderer app=$app"
+        if ($api -eq 200 -and $signal -and $health -eq 200 -and $renderer -eq 200 -and $app) {
             return @{ ok = $true; detail = $last }
         }
         Start-Sleep -Seconds 2
@@ -85,6 +92,7 @@ function Invoke-DevStop([string]$Worktree) {
     Write-OpenBotLog $paths.SwapLog "dev:stop in $Worktree"
     Push-Location $Worktree
     try {
+        $ErrorActionPreference = 'Continue'
         & $paths.Bun run dev:stop *>> $paths.SwapLog
         if ($LASTEXITCODE -ne 0) { throw "dev:stop failed in $Worktree with exit $LASTEXITCODE." }
     }
@@ -152,6 +160,9 @@ function Invoke-Swap {
     if (-not (Test-Path -LiteralPath $plan.bun)) { throw "Pinned Bun is missing at $($plan.bun)." }
     if (-not (Test-Path -LiteralPath $plan.oldWorktree)) { throw "Old worktree is missing: $($plan.oldWorktree)" }
     if (-not (Test-Path -LiteralPath $plan.newWorktree)) { throw "New worktree is missing: $($plan.newWorktree)" }
+    if ((& git -C $plan.newWorktree rev-parse HEAD) -ne $plan.commit -or (& git -C $plan.newWorktree status --porcelain)) {
+        throw 'The new worktree no longer matches the checked preparation plan.'
+    }
     $script:paths = Get-OpenBotUpdaterPaths
     $script:paths.Bun = [string]$plan.bun
 
@@ -163,19 +174,24 @@ function Invoke-Swap {
     if (-not (Test-Path -LiteralPath $authSource) -and (Test-Path -LiteralPath $paths.AuthState)) {
         $authSource = $paths.AuthState
     }
-    Backup-OpenBotDirectory $profile ([IO.Path]::Combine($backup, 'profile'))
-    if (Test-Path -LiteralPath $authSource) {
-        Backup-OpenBotDirectory $authSource ([IO.Path]::Combine($backup, 'auth-api'))
-    }
-    Write-OpenBotLog $paths.SwapLog "Backed up to $backup"
-
     Invoke-DevStop $plan.oldWorktree
     Wait-OpenBotPortsFree $plan 90
+    try {
+        Backup-OpenBotDirectory $profile ([IO.Path]::Combine($backup, 'profile'))
+        if (Test-Path -LiteralPath $authSource) {
+            Backup-OpenBotDirectory $authSource ([IO.Path]::Combine($backup, 'auth-api'))
+        }
+    }
+    catch {
+        $null = Start-DevBuild $plan.oldWorktree $plan.instanceId
+        throw
+    }
+    Write-OpenBotLog $paths.SwapLog "Backed up to $backup"
     Install-OpenBotAuthJunction $plan.oldWorktree $paths.AuthState
     Install-OpenBotAuthJunction $plan.newWorktree $paths.AuthState
 
     $started = Start-DevBuild $plan.newWorktree $plan.instanceId
-    $health = Wait-OpenBotHealthy $plan 300
+    $health = Wait-OpenBotHealthy $plan 300 $plan.newWorktree
     if ($health.ok) {
         $commit = (git -C $plan.newWorktree rev-parse HEAD).Trim()
         Write-OpenBotJson $paths.Current @{
@@ -201,8 +217,16 @@ function Invoke-Swap {
     Write-OpenBotLog $paths.SwapLog ("New build failed health. " + $health.detail)
     Stop-StartedDev $plan.newWorktree
     Wait-OpenBotPortsFree $plan 90
+    # The failed build can already have migrated the database. Keep it aside and restore the closed backup.
+    Move-OpenBotDirectory $profile "$profile.failed-$stamp"
+    Backup-OpenBotDirectory ([IO.Path]::Combine($backup, 'profile')) $profile
+    $authBackup = [IO.Path]::Combine($backup, 'auth-api')
+    if (Test-Path -LiteralPath $authBackup) {
+        Move-OpenBotDirectory $paths.AuthState "$($paths.AuthState).failed-$stamp"
+        Backup-OpenBotDirectory $authBackup $paths.AuthState
+    }
     $restored = Start-DevBuild $plan.oldWorktree $plan.instanceId
-    $oldHealth = Wait-OpenBotHealthy $plan 300
+    $oldHealth = Wait-OpenBotHealthy $plan 300 $plan.oldWorktree
     Write-OpenBotJson $paths.Result @{
         status      = $(if ($oldHealth.ok) { 'rolled-back' } else { 'failed' })
         oldWorktree = [string]$plan.oldWorktree
@@ -333,13 +357,14 @@ if ($Mode -eq 'dry-run') {
 
 Enter-OpenBotLock $paths.Lock
 try {
+    Write-OpenBotJson $paths.Result @{ status = 'running'; startedAt = [DateTimeOffset]::Now.ToString('o') }
     Invoke-Swap
     Unregister-ScheduledTask -TaskName $paths.TaskName -Confirm:$false -ErrorAction SilentlyContinue
 }
 catch {
     Write-OpenBotLog $paths.SwapLog $_.Exception.Message
     $existing = Read-OpenBotJson $paths.Result
-    if (-not $existing -or $existing.status -eq 'dry-run' -or $existing.status -eq 'self-test') {
+    if (-not $existing -or $existing.status -eq 'running') {
         Write-OpenBotJson $paths.Result @{
             status     = 'failed'
             detail     = $_.Exception.Message
