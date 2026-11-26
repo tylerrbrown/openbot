@@ -97,6 +97,8 @@ function Invoke-BunIn([string]$Worktree, [string[]]$Arguments) {
     Write-OpenBotLog $paths.PrepLog ("bun " + ($Arguments -join ' ') + " in $Worktree")
     Push-Location $Worktree
     try {
+        # Windows PowerShell treats native stderr as a PowerShell error under Stop.
+        $ErrorActionPreference = 'Continue'
         & $paths.Bun @Arguments *>> $paths.PrepLog
         $code = $LASTEXITCODE
     }
