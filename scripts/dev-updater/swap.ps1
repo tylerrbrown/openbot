@@ -47,11 +47,14 @@ function Test-HttpStatus([string]$Url) {
     }
 }
 
-function Wait-OpenBotHealthy($Plan, [int]$TimeoutSeconds, [string]$Worktree) {
+function Wait-OpenBotHealthy($Plan, [int]$TimeoutSeconds, [int]$LauncherId, [string]$Worktree) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $last = 'not checked'
     do {
-        $api = Test-HttpStatus ("http://127.0.0.1:{0}/" -f $Plan.ports.api)
+        if (-not (Get-Process -Id $LauncherId -ErrorAction SilentlyContinue)) {
+            return @{ ok = $false; detail = "Dev launcher exited. Last health: $last" }
+        }
+        $api = Test-HttpStatus ("http://127.0.0.1:{0}/health/live" -f $Plan.ports.api)
         $signal = Test-TcpOpen '127.0.0.1' ([int]$Plan.ports.signal)
         $health = Test-HttpStatus ("http://127.0.0.1:{0}/health/live" -f $Plan.ports.health)
         $renderer = Test-HttpStatus ("http://[::1]:{0}/" -f $Plan.ports.renderer)
@@ -102,37 +105,61 @@ function Invoke-DevStop([string]$Worktree) {
     }
 }
 
-function Start-DevBuild([string]$Worktree, [string]$InstanceId) {
+function Start-DevBuild([string]$Worktree, $Plan) {
     $bunDir = Split-Path -Parent $paths.Bun
-    $stdout = [IO.Path]::Combine($paths.Root, 'dev-stdout.log')
-    $stderr = [IO.Path]::Combine($paths.Root, 'dev-stderr.log')
-    $previousPath = $env:PATH
-    $previousId = $env:OPENBOT_DEV_INSTANCE_ID
-    $env:PATH = "$bunDir;$previousPath"
-    $env:OPENBOT_DEV_INSTANCE_ID = $InstanceId
+    $logName = 'dev-{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+    $stdout = [IO.Path]::Combine($paths.Root, "$logName-stdout.log")
+    $stderr = [IO.Path]::Combine($paths.Root, "$logName-stderr.log")
+    $launchEnv = @{
+        PATH = "$bunDir;$env:PATH"
+        OPENBOT_DEV_INSTANCE_ID = [string]$Plan.instanceId
+        OPENBOT_DEV_READY_TIMEOUT_MS = '180000'
+        OPENBOT_API_PORT = [string]$Plan.ports.api
+        REMOTE_SIGNAL_PORT = [string]$Plan.ports.signal
+        REMOTE_HEALTH_PORT = [string]$Plan.ports.health
+        OPENBOT_DEV_RENDERER_PORT = [string]$Plan.ports.renderer
+    }
+    $previous = @{}
+    foreach ($key in $launchEnv.Keys) {
+        $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+        [Environment]::SetEnvironmentVariable($key, $launchEnv[$key], 'Process')
+    }
     try {
         $proc = Start-Process -FilePath $paths.Bun -ArgumentList @('run', 'dev') -WorkingDirectory $Worktree -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     }
     finally {
-        $env:PATH = $previousPath
-        if ($null -eq $previousId) { Remove-Item Env:OPENBOT_DEV_INSTANCE_ID -ErrorAction SilentlyContinue }
-        else { $env:OPENBOT_DEV_INSTANCE_ID = $previousId }
+        foreach ($key in $previous.Keys) {
+            [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process')
+        }
     }
     Write-OpenBotJson $paths.StartedPids @{ pid = $proc.Id; worktree = $Worktree }
-    Write-OpenBotLog $paths.SwapLog "Started PID $($proc.Id) in $Worktree"
+    Write-OpenBotLog $paths.SwapLog "Started PID $($proc.Id) in $Worktree. Output: $stdout; errors: $stderr"
     return $proc.Id
 }
 
-function Stop-StartedDev([string]$Worktree) {
-    try { Invoke-DevStop $Worktree } catch { Write-OpenBotLog $paths.SwapLog $_.Exception.Message }
-    $started = Read-OpenBotJson $paths.StartedPids
-    if (-not $started -or -not $started.pid) { return }
-    $procId = [int]$started.pid
-    if ((Get-OpenBotFullPath $started.worktree) -ne (Get-OpenBotFullPath $Worktree)) { return }
-    if (Test-OpenBotOwnedProcess $procId $Worktree) {
-        Stop-Process -Id $procId -Force
-        Write-OpenBotLog $paths.SwapLog "Stopped owned PID $procId"
+function Start-DevWithRetry($Plan, [string]$Worktree) {
+    $attempts = @()
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        $started = $null
+        try {
+            $started = Start-DevBuild $Worktree $Plan
+            # Auth and Signal each get 180 seconds and start in sequence.
+            $health = Wait-OpenBotHealthy $Plan 420 $started $Worktree
+        }
+        catch { $health = @{ ok = $false; detail = $_.Exception.Message } }
+        $attempts += $health.detail
+        if ($health.ok) { break }
+        Write-OpenBotLog $paths.SwapLog "Attempt $attempt failed in ${Worktree}: $($health.detail)"
+        Invoke-DevStop $Worktree
+        Wait-OpenBotPortsFree $Plan 90
+        if ($started -and (Get-Process -Id $started -ErrorAction SilentlyContinue)) {
+            Wait-Process -Id $started -Timeout 10 -ErrorAction SilentlyContinue
+            if (Get-Process -Id $started -ErrorAction SilentlyContinue) {
+                throw "Dev launcher $started has not stopped. Refusing to retry or restore state."
+            }
+        }
     }
+    return @{ ok = $health.ok; detail = $attempts -join '; '; attempts = $attempts.Count; pid = $started }
 }
 
 function Register-SwapTask {
@@ -149,6 +176,20 @@ function Register-SwapTask {
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2)
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $paths.TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+}
+
+function Restore-ClosedDirectory([string]$Backup, [string]$Live, [string]$Stamp) {
+    # Do not move the failed build's state until the full replacement has been verified.
+    $replacement = "$Live.restore-$Stamp"
+    $failedState = "$Live.from-failed-build-$Stamp"
+    Backup-OpenBotDirectory $Backup $replacement
+    $exists = Test-Path -LiteralPath $Live
+    if ($exists) { Move-OpenBotDirectory $Live $failedState }
+    try { Move-OpenBotDirectory $replacement $Live }
+    catch {
+        if ($exists) { Move-OpenBotDirectory $failedState $Live }
+        throw
+    }
 }
 
 function Invoke-Swap {
@@ -174,24 +215,42 @@ function Invoke-Swap {
     if (-not (Test-Path -LiteralPath $authSource) -and (Test-Path -LiteralPath $paths.AuthState)) {
         $authSource = $paths.AuthState
     }
+    if (-not (Test-Path -LiteralPath $authSource -PathType Container)) {
+        throw 'The current account state is missing. The app was not stopped.'
+    }
+    if ($authSource -ne $paths.AuthState -and (Test-Path -LiteralPath $paths.AuthState) -and
+        -not (Test-OpenBotJunctionTo $authSource $paths.AuthState)) {
+        throw 'Both the current worktree and permanent account locations exist. Resolve the duplicate state before retrying; the app was not stopped.'
+    }
+    $newAuth = [IO.Path]::Combine($plan.newWorktree, 'apps', 'auth-api', '.wrangler')
+    if ((Test-Path -LiteralPath $newAuth) -and -not (Test-OpenBotJunctionTo $newAuth $paths.AuthState) -and
+        @(Get-ChildItem -LiteralPath $newAuth -Force -Recurse -File -ErrorAction Stop).Count -gt 0) {
+        throw 'The new worktree already contains other account state. The app was not stopped.'
+    }
     Invoke-DevStop $plan.oldWorktree
     Wait-OpenBotPortsFree $plan 90
+    $authBackup = [IO.Path]::Combine($backup, 'auth-api')
     try {
+        if (Restore-OpenBotDevReadyTimeout $plan.oldWorktree) {
+            Write-OpenBotLog $paths.SwapLog 'Backported the readiness deadline to the stopped rollback worktree.'
+        }
         Backup-OpenBotDirectory $profile ([IO.Path]::Combine($backup, 'profile'))
-        if (Test-Path -LiteralPath $authSource) {
-            Backup-OpenBotDirectory $authSource ([IO.Path]::Combine($backup, 'auth-api'))
+        Backup-OpenBotDirectory $authSource $authBackup
+        $accountBefore = (Get-OpenBotInventory $authSource -AccountHashes) -join "`n"
+        if (-not $accountBefore -or $accountBefore -cne ((Get-OpenBotInventory $authBackup -AccountHashes) -join "`n")) {
+            throw 'The closed account database was missing or did not match its backup.'
         }
     }
     catch {
-        $null = Start-DevBuild $plan.oldWorktree $plan.instanceId
+        $null = Start-DevWithRetry $plan $plan.oldWorktree
         throw
     }
-    Write-OpenBotLog $paths.SwapLog "Backed up to $backup"
+    Write-OpenBotLog $paths.SwapLog "Verified closed profile and account backups at $backup"
+
     Install-OpenBotAuthJunction $plan.oldWorktree $paths.AuthState
     Install-OpenBotAuthJunction $plan.newWorktree $paths.AuthState
 
-    $started = Start-DevBuild $plan.newWorktree $plan.instanceId
-    $health = Wait-OpenBotHealthy $plan 300 $plan.newWorktree
+    $health = Start-DevWithRetry $plan $plan.newWorktree
     if ($health.ok) {
         $commit = (git -C $plan.newWorktree rev-parse HEAD).Trim()
         Write-OpenBotJson $paths.Current @{
@@ -207,7 +266,8 @@ function Invoke-Swap {
             commit      = $commit
             backup      = $backup
             health      = $health.detail
-            startedPid  = $started
+            attempts    = $health.attempts
+            startedPid  = $health.pid
             finishedAt  = [DateTimeOffset]::Now.ToString('o')
         }
         Write-OpenBotLog $paths.SwapLog "Swap succeeded. $commit"
@@ -215,18 +275,12 @@ function Invoke-Swap {
     }
 
     Write-OpenBotLog $paths.SwapLog ("New build failed health. " + $health.detail)
-    Stop-StartedDev $plan.newWorktree
-    Wait-OpenBotPortsFree $plan 90
-    # The failed build can already have migrated the database. Keep it aside and restore the closed backup.
-    Move-OpenBotDirectory $profile "$profile.failed-$stamp"
-    Backup-OpenBotDirectory ([IO.Path]::Combine($backup, 'profile')) $profile
-    $authBackup = [IO.Path]::Combine($backup, 'auth-api')
-    if (Test-Path -LiteralPath $authBackup) {
-        Move-OpenBotDirectory $paths.AuthState "$($paths.AuthState).failed-$stamp"
-        Backup-OpenBotDirectory $authBackup $paths.AuthState
-    }
-    $restored = Start-DevBuild $plan.oldWorktree $plan.instanceId
-    $oldHealth = Wait-OpenBotHealthy $plan 300 $plan.oldWorktree
+    $authExists = Test-Path -LiteralPath $paths.AuthState
+    $accountChanged = -not $authExists -or $accountBefore -cne ((Get-OpenBotInventory $paths.AuthState -AccountHashes) -join "`n")
+    # The desktop DB may have migrated even if the account DB did not change.
+    Restore-ClosedDirectory ([IO.Path]::Combine($backup, 'profile')) $profile $stamp
+    if ($accountChanged) { Restore-ClosedDirectory $authBackup $paths.AuthState $stamp }
+    $oldHealth = Start-DevWithRetry $plan $plan.oldWorktree
     Write-OpenBotJson $paths.Result @{
         status      = $(if ($oldHealth.ok) { 'rolled-back' } else { 'failed' })
         oldWorktree = [string]$plan.oldWorktree
@@ -234,7 +288,13 @@ function Invoke-Swap {
         backup      = $backup
         health      = $health.detail
         rollback    = $oldHealth.detail
-        startedPid  = $restored
+        attempts    = $health.attempts
+        rollbackAttempts = $oldHealth.attempts
+        accountRestored = $accountChanged
+        startedPid  = $oldHealth.pid
+        instructions = $(if (-not $oldHealth.ok) {
+            "Both rollback starts failed. Leave the account database as it is. Check the per-attempt logs named in swap.log. After correcting the startup error, run bun run dev in $($plan.oldWorktree) with OPENBOT_DEV_INSTANCE_ID=$($plan.instanceId) and OPENBOT_DEV_READY_TIMEOUT_MS=180000. Verified backup: $backup. Do not restore individual SQLite files."
+        })
         finishedAt  = [DateTimeOffset]::Now.ToString('o')
     }
     if (-not $oldHealth.ok) { throw "Rollback did not become healthy. $($oldHealth.detail)" }
@@ -368,6 +428,7 @@ catch {
         Write-OpenBotJson $paths.Result @{
             status     = 'failed'
             detail     = $_.Exception.Message
+            instructions = 'Check swap.log and the per-attempt logs before starting the previous worktree. Do not restore individual SQLite files or start another swap until all dev processes and ports are checked.'
             finishedAt = [DateTimeOffset]::Now.ToString('o')
         }
     }

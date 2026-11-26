@@ -122,11 +122,29 @@ function Install-OpenBotAuthJunction([string]$Worktree, [string]$Permanent) {
     return 'linked'
 }
 
+function Get-OpenBotInventory([string]$Path, [switch]$AccountHashes) {
+    $root = Get-OpenBotFullPath $Path
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Directory missing: $root." }
+    Get-ChildItem -LiteralPath $root -Force -Recurse -File -ErrorAction Stop | Sort-Object FullName | ForEach-Object {
+        $relative = $_.FullName.Substring($root.Length + 1)
+        if (-not $AccountHashes) { "$relative`t$($_.Length)" }
+        # SHM is a transient index, not account data. It still belongs in the full backup.
+        elseif ($_.Name -match '\.sqlite(?:-wal)?$|^\.openbot-migrate-local-stamp$') {
+            "$relative`t$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+        }
+    }
+}
+
 function Backup-OpenBotDirectory([string]$Source, [string]$Destination) {
-    if (-not (Test-Path -LiteralPath $Source)) { throw "Nothing to back up at $Source." }
+    $before = @(Get-OpenBotInventory $Source)
+    if (Test-Path -LiteralPath $Destination) { throw "Backup destination already exists: $Destination." }
     Ensure-OpenBotDirectory $Destination
-    & robocopy.exe $Source $Destination /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NP | Out-Null
+    & robocopy.exe $Source $Destination /E /COPY:DAT /XJ /R:1 /W:1 /NFL /NDL /NJH /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Backup of $Source failed (robocopy $LASTEXITCODE)." }
+    $after = @(Get-OpenBotInventory $Destination)
+    if ($before.Count -ne $after.Count -or ($before -join "`n") -cne ($after -join "`n")) {
+        throw "Backup file count or size does not match: $Destination."
+    }
 }
 
 function Enter-OpenBotLock([string]$Path) {
@@ -159,4 +177,44 @@ function Test-OpenBotOwnedProcess([int]$ProcessId, [string]$Worktree) {
 
 function Get-OpenBotSwapTaskArgument([string]$SwapScript) {
     return "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$SwapScript`" -Mode swap"
+}
+
+function Restore-OpenBotDevReadyTimeout([string]$Worktree) {
+    $path = [IO.Path]::Combine($Worktree, 'scripts', 'dev-services.ts')
+    $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    $source = $utf8.GetString([IO.File]::ReadAllBytes($path))
+    # shortcut: match the two known wait loops; update these anchors if upstream moves the deadlines.
+    $deadline = '\([^\r\n]*(\r?\n)(?:[^\r\n]*\r?\n){2}  const deadline = Date\.now\(\) \+ (30_000|developmentReadyTimeoutMs\(\));\r?$'
+    $api = [regex]::Match($source, '(?m)^async function waitForDevelopmentApi' + $deadline)
+    $remote = [regex]::Match($source, '(?m)^async function waitForDevelopmentRemote' + $deadline)
+    $helper = @'
+function developmentReadyTimeoutMs(): number {
+  const timeout = Number(process.env.OPENBOT_DEV_READY_TIMEOUT_MS);
+  return Number.isSafeInteger(timeout) && timeout > 0 ? timeout : 180_000;
+}
+'@
+    $newline = $api.Groups[1].Value
+    $helper = $helper.Replace("`r`n", "`n").Replace("`n", $newline)
+    $call = 'developmentReadyTimeoutMs()'
+    if ($api.Groups[2].Value -ceq $call -and $remote.Groups[2].Value -ceq $call -and
+        $source.Contains($helper)) { return $false }
+    if ($api.Groups[2].Value -cne '30_000' -or $remote.Groups[2].Value -cne '30_000' -or
+        $source.Contains('OPENBOT_DEV_READY_TIMEOUT_MS')) {
+        throw "Could not restore the dev readiness timeout in $path; the wait loops have changed."
+    }
+
+    foreach ($match in @(@($api, $remote) | Sort-Object Index -Descending)) {
+        $start = $match.Groups[2].Index
+        $source = $source.Remove($start, $match.Groups[2].Length).Insert($start, $call)
+    }
+    $source = $source.Insert($api.Index, $helper + $newline + $newline)
+    $temp = "$path.$([guid]::NewGuid()).tmp"
+    try {
+        [IO.File]::WriteAllBytes($temp, $utf8.GetBytes($source))
+        [IO.File]::Replace($temp, $path, [NullString]::Value)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+    return $true
 }

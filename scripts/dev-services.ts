@@ -637,10 +637,15 @@ function isPrivateIpv4(address: string): boolean {
   );
 }
 
+function developmentReadyTimeoutMs(): number {
+  const timeout = Number(process.env.OPENBOT_DEV_READY_TIMEOUT_MS);
+  return Number.isSafeInteger(timeout) && timeout > 0 ? timeout : 180_000;
+}
+
 async function waitForDevelopmentApi(portValue: string | undefined, child: ChildProcess): Promise<void> {
   const port = readPort(portValue);
   if (!port) throw new Error("The development API port is missing.");
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + developmentReadyTimeoutMs();
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error("The development Auth API stopped before it became ready.");
     try {
@@ -657,7 +662,7 @@ async function waitForDevelopmentApi(portValue: string | undefined, child: Child
 async function waitForDevelopmentRemote(portValue: string | undefined, child: ChildProcess): Promise<void> {
   const port = readPort(portValue);
   if (!port) throw new Error("The development Signal health port is missing.");
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + developmentReadyTimeoutMs();
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error("The development Signal service stopped before it became ready.");
     try {

@@ -97,9 +97,11 @@ function Invoke-BunIn([string]$Worktree, [string[]]$Arguments) {
     Write-OpenBotLog $paths.PrepLog ("bun " + ($Arguments -join ' ') + " in $Worktree")
     Push-Location $Worktree
     try {
-        # Windows PowerShell treats native stderr as a PowerShell error under Stop.
-        $ErrorActionPreference = 'Continue'
-        & $paths.Bun @Arguments *>> $paths.PrepLog
+        # Windows PowerShell 5.1 treats redirected native stderr as errors under Stop.
+        & {
+            $ErrorActionPreference = 'Continue'
+            & $paths.Bun @Arguments 2>&1
+        } | ForEach-Object { [string]$_ } | Out-File -LiteralPath $paths.PrepLog -Append -Encoding UTF8
         $code = $LASTEXITCODE
     }
     finally {
@@ -217,6 +219,12 @@ try {
         Pop-Location
     }
     $merged = $true
+    if (Restore-OpenBotDevReadyTimeout $new) {
+        & git -C $new add -- scripts/dev-services.ts
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stage the restored dev readiness timeout.' }
+        & git -C $new commit --only -m 'Restore the OpenBot dev readiness timeout' -- scripts/dev-services.ts
+        if ($LASTEXITCODE -ne 0) { throw 'Could not commit the restored dev readiness timeout.' }
+    }
     Invoke-BunIn $new @('install', '--frozen-lockfile')
     Invoke-BunIn $new @('run', 'build')
     Invoke-BunIn $new @('run', 'typecheck')
